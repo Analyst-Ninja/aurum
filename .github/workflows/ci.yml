@@ -8,6 +8,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+# Least-privilege GITHUB_TOKEN — jobs only read the repo
+permissions:
+  contents: read
+
 jobs:
   python:
     name: Lint & test
@@ -21,15 +25,15 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: uv sync --no-build
+        run: uv sync --locked --no-build
 
       - name: Lint (ruff)
-        run: uvx --no-build ruff check src/ main.py
+        run: uv run --locked --no-build ruff check src/ main.py
 
       - name: Tests (pytest)
         run: |
           if [ -d tests ]; then
-            uv run --no-build --with pytest pytest tests/ -v
+            uv run --locked --no-build pytest tests/ -v
           else
             echo "No tests/ directory yet — skipping"
           fi
