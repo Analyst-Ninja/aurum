@@ -356,7 +356,9 @@ aurum/
 │   ├── TECHNICAL_SPEC.md        # this document
 │   ├── data-dictionary.md
 │   ├── edgar-incremental-ingestion.md
-│   └── infra-as-code.md
+│   ├── infra-as-code.md
+│   └── cicd.md
+├── .github/workflows/           # CI (ruff, pytest, SonarQube), Terraform validation
 └── README.md
 ```
 

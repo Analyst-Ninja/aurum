@@ -40,6 +40,7 @@ Kafka · Postgres · Apache Airflow · Snowflake · dbt · Python 3.12 (uv) · s
 | [Data Dictionary](docs/data-dictionary.md) | Every field, layer by layer, with formulas and gotchas |
 | [EDGAR Incremental Ingestion](docs/edgar-incremental-ingestion.md) | Daily-index + watermark strategy for fetching only new filings |
 | [Infrastructure as Code](docs/infra-as-code.md) | Terraform for Snowflake objects, Kafka topics, Postgres roles |
+| [CI/CD Pipeline](docs/cicd.md) | GitHub Actions: lint, tests, SonarQube quality gate, Terraform validation |
 
 ## Status
 

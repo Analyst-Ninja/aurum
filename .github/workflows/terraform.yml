@@ -1,0 +1,44 @@
+name: Terraform
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/terraform/**"
+  pull_request:
+    paths:
+      - "infra/terraform/**"
+
+defaults:
+  run:
+    working-directory: infra/terraform
+
+jobs:
+  validate:
+    name: Format, validate, lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Format check
+        run: terraform fmt -check -recursive -diff
+
+      - name: Init (no backend — validation only)
+        run: terraform init -backend=false
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Set up tflint
+        uses: terraform-linters/setup-tflint@v4
+
+      - name: Lint
+        run: |
+          tflint --init
+          tflint --recursive --format compact
+
+  # terraform plan/apply run LOCALLY by design:
+  # - kafka/postgres providers target compose endpoints on the operator machine
+  # - tfstate is local and gitignored (see docs/infra-as-code.md §5)
