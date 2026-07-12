@@ -8,6 +8,18 @@ import pytest
 from src.datasources.apis.yahoo import batch_ds
 from src.datasources.apis.yahoo.batch_ds import OHLCVDataSource
 
+# Raw Yahoo OHLCV columns that read_data selects before writing to the DB
+YAHOO_COLS = [
+    "Adj Close",
+    "Close",
+    "Dividends",
+    "High",
+    "Low",
+    "Open",
+    "Stock Splits",
+    "Volume",
+]
+
 
 @pytest.fixture
 def ds(monkeypatch):
@@ -29,9 +41,14 @@ def recorder(ds, monkeypatch):
 
     def fake_batch(symbols, start, end, interval):
         calls.append((start, list(symbols)))
-        return pd.DataFrame(
-            {"date": ["2020-01-01"] * len(symbols), "symbol": list(symbols)}
+        n = len(symbols)
+        frame = pd.DataFrame(
+            {"date": ["2020-01-01"] * n, "symbol": list(symbols)}
         )
+        # Match the raw Yahoo columns read_data selects before writing
+        for col in YAHOO_COLS:
+            frame[col] = 0.0
+        return frame
 
     monkeypatch.setattr(ds, "_read_batch_data", fake_batch)
     monkeypatch.setattr(ds, "write_data", lambda data: written.append(data.copy()))

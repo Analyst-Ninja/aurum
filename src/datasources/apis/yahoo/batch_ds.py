@@ -83,9 +83,8 @@ class OHLCVDataSource(YahooFinanceBatchDataSource):
             )
         except (SQLAlchemyError, pd.errors.DatabaseError):
             return {}
-        return {
-            row.symbol: pd.to_datetime(row.max_date).date() for row in df.itertuples()
-        }
+        max_dates = pd.to_datetime(df["max_date"]).dt.date
+        return dict(zip(df["symbol"], max_dates))
 
     def _read_batch_data(
         self, symbols, start_date, end_date, interval="1d"
