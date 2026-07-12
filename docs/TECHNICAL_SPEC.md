@@ -348,12 +348,15 @@ aurum/
 │   └── mcp_server/              # FastMCP NL→SQL server
 ├── dbt/                         # dbt-snowflake project (raw sources, silver, gold)
 ├── airflow/dags/                # load + quality + retrain DAGs
-├── infra/                       # docker-compose (kafka, postgres, airflow), snowflake setup SQL
+├── infra/
+│   ├── docker-compose.yml       # runtime: kafka, postgres, airflow
+│   └── terraform/               # IaC: snowflake objects, kafka topics, postgres roles (see docs/infra-as-code.md)
 ├── nbs/                         # exploration notebooks
 ├── docs/
 │   ├── TECHNICAL_SPEC.md        # this document
 │   ├── data-dictionary.md
-│   └── edgar-incremental-ingestion.md
+│   ├── edgar-incremental-ingestion.md
+│   └── infra-as-code.md
 └── README.md
 ```
 
@@ -361,7 +364,7 @@ aurum/
 
 | Phase | Deliverable | Effort |
 |-------|-------------|--------|
-| 0 | Infra: docker-compose Kafka + Postgres + Airflow; Snowflake account objects | 1d |
+| 0 | Infra: docker-compose Kafka + Postgres + Airflow; Terraform for Snowflake objects, Kafka topics, Postgres roles ([infra-as-code.md](infra-as-code.md)) | 1.5d |
 | 1 | EDGAR producer (incremental, daily-index) + consumer → Postgres | 2d |
 | 2 | Market websocket producer + consumer → Postgres | 2d |
 | 3 | Airflow incremental load Postgres → Snowflake RAW | 1d |
