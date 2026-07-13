@@ -1,5 +1,31 @@
+"""AURUM entrypoint: run the incremental OHLCV pipeline."""
+
+from sqlalchemy import create_engine
+
+from src.core.config import CoreConfig, setup_logging
+from src.core.sinks import PostgresSink
+from src.core.state import LandingTableStateStore
+from src.datasources.apis.yahoo.config import YahooConfig
+from src.datasources.apis.yahoo.ohlcv_ds import YahooOhlcvDataSource
+from src.datasources.apis.yahoo.symbols import get_sec_symbols
+from src.pipelines.ohlcv_daily import OhlcvDailyPipeline
+
+
 def main():
-    print("Hello from aurum!")
+    core, yahoo = CoreConfig(), YahooConfig()
+    setup_logging()
+    engine_factory = (
+        (lambda: create_engine(core.postgres_url, echo=False))
+        if core.postgres_url
+        else None
+    )
+    pipeline = OhlcvDailyPipeline(
+        source=YahooOhlcvDataSource(yahoo),
+        state=LandingTableStateStore(engine_factory, yahoo.table),
+        sink=PostgresSink(engine_factory),
+        config=yahoo,
+    )
+    pipeline.run(get_sec_symbols())
 
 
 if __name__ == "__main__":
