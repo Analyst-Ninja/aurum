@@ -1,0 +1,5 @@
+interval: "1d"
+batch_size: 100
+sleep_seconds: 10
+history_floor: "2000-01-01"
+table: "ohlcv_1d"
