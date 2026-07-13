@@ -14,11 +14,11 @@ from src.pipelines.ohlcv_daily import OhlcvDailyPipeline
 def main():
     core, yahoo = CoreConfig(), YahooConfig()
     setup_logging()
-    engine_factory = (
-        (lambda: create_engine(core.postgres_url, echo=False))
-        if core.postgres_url
-        else None
-    )
+    postgres_url = core.postgres_url
+    if postgres_url is not None:
+        engine_factory = lambda: create_engine(postgres_url, echo=False)
+    else:
+        engine_factory = None
     pipeline = OhlcvDailyPipeline(
         source=YahooOhlcvDataSource(yahoo),
         state=LandingTableStateStore(engine_factory, yahoo.table),
