@@ -15,10 +15,12 @@ def main():
     core, yahoo = CoreConfig(), YahooConfig()
     setup_logging()
     postgres_url = core.postgres_url
+    engine_factory = None
     if postgres_url is not None:
-        engine_factory = lambda: create_engine(postgres_url, echo=False)
-    else:
-        engine_factory = None
+
+        def engine_factory():
+            return create_engine(postgres_url, echo=False)
+
     pipeline = OhlcvDailyPipeline(
         source=YahooOhlcvDataSource(yahoo),
         state=LandingTableStateStore(engine_factory, yahoo.table),
