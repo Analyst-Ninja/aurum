@@ -25,7 +25,7 @@ def main():
         sink=PostgresSink(engine_factory),
         config=yahoo,
     )
-    pipeline.run(get_sec_symbols())
+    pipeline.run(get_sec_symbols(core.sec_user_agent))
 
 
 if __name__ == "__main__":

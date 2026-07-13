@@ -11,6 +11,7 @@ class CoreConfig(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     postgres_url: str | None = None
+    sec_user_agent: str | None = None
 
 
 def setup_logging(level: str = "INFO") -> None:

@@ -20,7 +20,6 @@ class FakeResponse:
 
 
 def test_parses_tickers(monkeypatch):
-    monkeypatch.setenv("SEC_USER_AGENT", "AURUM-Project real@person.dev")
     captured = {}
 
     def fake_get(url, headers, timeout):
@@ -28,11 +27,10 @@ def test_parses_tickers(monkeypatch):
         return FakeResponse()
 
     monkeypatch.setattr(symbols_mod.requests, "get", fake_get)
-    assert get_sec_symbols() == ["AAPL", "MSFT"]
+    assert get_sec_symbols("AURUM-Project real@person.dev") == ["AAPL", "MSFT"]
     assert captured["headers"]["User-Agent"] == "AURUM-Project real@person.dev"
 
 
-def test_missing_user_agent_raises(monkeypatch):
-    monkeypatch.delenv("SEC_USER_AGENT", raising=False)
+def test_missing_user_agent_raises():
     with pytest.raises(Exception, match="SEC_USER_AGENT"):
-        get_sec_symbols()
+        get_sec_symbols(None)
