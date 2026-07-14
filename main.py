@@ -27,7 +27,7 @@ def main():
         sink=PostgresSink(engine_factory),
         config=ohlcv_daily,
     )
-    # ohlcv_daily_pipeline.run(get_sec_symbols(core.sec_user_agent))
+    ohlcv_daily_pipeline.run(get_sec_symbols(core.sec_user_agent))
 
     ohlcv_1min_pipeline = StockMarketDataPipeline(
         source=YahooOhlcvDataSource(ohlcv_minute),
