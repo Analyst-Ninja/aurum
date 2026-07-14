@@ -28,6 +28,30 @@ flowchart LR
 5. **Act** — the Realtime Inference Module joins the live stream with the trained model and emits explained trading decisions.
 6. **Ask** — a custom FastMCP server converts natural language to SQL over the gold marts.
 
+## Datasource framework
+
+Ingestion is built on a small, swappable framework so every data source (Yahoo, EDGAR, news) follows one pattern. Two layers meet through four tiny contracts:
+
+- **Datasource** — a pure API client. Its only job is `fetch(FetchRequest) → Iterator[DataFrame]`. No database, no Kafka, no throttling.
+- **Pipeline** — the workflow. It reads watermarks to decide *what* to fetch, calls the datasource, then writes results through a **Sink**, advancing state so the next run skips what's already stored.
+
+```
+FetchRequest ─▶ BatchDataSource.fetch() ─▶ validated DataFrame ─▶ Sink.write() ─▶ Postgres
+                        ▲                                              ▲
+                   YahooConfig                              StateStore (watermarks)
+```
+
+The four contracts (`src/core/interfaces.py`) — `BatchDataSource`, `StateStore`, `Sink`, and the `FetchRequest` value object — let any piece be swapped without touching the others: send data to Kafka by changing only the sink, replace yfinance by writing one new datasource, add EDGAR by adding one folder. Record schemas (pydantic `BaseRecord`) declare their table and natural key once, so validation, writes, and dedup all read from the same source of truth.
+
+**Run it:**
+
+```bash
+uv run pytest tests/ -v     # 32 tests, no network or DB
+uv run main.py              # incremental OHLCV → Postgres (needs .env)
+```
+
+See the [Datasource Framework Guide](docs/datasource-framework.md) for diagrams, a step-by-step run walkthrough, and the recipe for adding a new source.
+
 ## Tech stack
 
 Kafka · Postgres · Apache Airflow · Snowflake · dbt · Python 3.12 (uv) · scikit-learn / XGBoost + SHAP · FastMCP · yfinance · SEC EDGAR APIs
@@ -37,6 +61,7 @@ Kafka · Postgres · Apache Airflow · Snowflake · dbt · Python 3.12 (uv) · s
 | Doc | Content |
 |-----|---------|
 | [Technical Specification](docs/TECHNICAL_SPEC.md) | Full architecture, component specs, constraints, build phases |
+| [Datasource Framework Guide](docs/datasource-framework.md) | How datasources, pipelines, and sinks connect; how to add a source |
 | [Data Dictionary](docs/data-dictionary.md) | Every field, layer by layer, with formulas and gotchas |
 | [EDGAR Incremental Ingestion](docs/edgar-incremental-ingestion.md) | Daily-index + watermark strategy for fetching only new filings |
 | [Infrastructure as Code](docs/infra-as-code.md) | Terraform for Snowflake objects, Kafka topics, Postgres roles |
