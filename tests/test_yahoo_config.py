@@ -2,11 +2,11 @@
 
 from datetime import date
 
-from src.datasources.apis.yahoo.config import YahooConfig
+from src.datasources.apis.yahoo.config import OHLCVDailyConfig
 
 
 def test_loads_yaml_defaults():
-    cfg = YahooConfig()
+    cfg = OHLCVDailyConfig()
     assert cfg.interval == "1d"
     assert cfg.batch_size == 100
     assert cfg.sleep_seconds == 10
@@ -16,4 +16,4 @@ def test_loads_yaml_defaults():
 
 def test_env_overrides_yaml(monkeypatch):
     monkeypatch.setenv("YAHOO_BATCH_SIZE", "25")
-    assert YahooConfig().batch_size == 25
+    assert OHLCVDailyConfig().batch_size == 25

@@ -6,7 +6,7 @@ import pandas as pd
 
 from src.core.interfaces import FetchRequest
 from src.datasources.apis.yahoo import ohlcv_ds
-from src.datasources.apis.yahoo.config import YahooConfig
+from src.datasources.apis.yahoo.config import OHLCVDailyConfig
 from src.datasources.apis.yahoo.ohlcv_ds import YahooOhlcvDataSource
 from src.datasources.apis.yahoo.schemas import OhlcvBar
 
@@ -43,7 +43,7 @@ class FakeTickers:
 
 def _source(batch_size=2):
     FakeTickers.calls = []
-    return YahooOhlcvDataSource(YahooConfig(batch_size=batch_size))
+    return YahooOhlcvDataSource(OHLCVDailyConfig(batch_size=batch_size))
 
 
 def test_schema_is_ohlcv_bar():

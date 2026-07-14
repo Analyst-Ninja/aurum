@@ -5,10 +5,10 @@ from datetime import date, datetime, timedelta, timezone
 import pandas as pd
 import pytest
 
-from src.datasources.apis.yahoo.config import YahooConfig
+from src.datasources.apis.yahoo.config import OHLCVDailyConfig
 from src.datasources.apis.yahoo.schemas import OhlcvBar
 from src.pipelines import ohlcv_daily
-from src.pipelines.ohlcv_daily import OhlcvDailyPipeline
+from src.pipelines.ohlcv_daily import StockMarketDataPipeline
 from tests.fakes import InMemoryStateStore, ListSink
 
 TODAY = datetime.now(timezone.utc).date()
@@ -40,11 +40,11 @@ def env(monkeypatch):
 
     def build(watermarks=None):
         return (
-            OhlcvDailyPipeline(
+            StockMarketDataPipeline(
                 source=source,
                 state=InMemoryStateStore(watermarks),
                 sink=sink,
-                config=YahooConfig(),
+                config=OHLCVDailyConfig(),
             ),
             source,
             sink,
