@@ -12,7 +12,7 @@ import pandas as pd
 import yfinance as yf
 
 from src.core.interfaces import FetchRequest
-from src.datasources.apis.yahoo.config import YahooConfig
+from src.datasources.apis.yahoo.config import OHLCVDailyConfig, OHLCVMinuteConfig
 from src.datasources.apis.yahoo.schemas import OhlcvBar
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ class YahooOhlcvDataSource:
 
     schema: ClassVar[type[OhlcvBar]] = OhlcvBar
 
-    def __init__(self, config: YahooConfig):
+    def __init__(self, config: OHLCVDailyConfig | OHLCVMinuteConfig):
         self._config = config
 
     def fetch(self, request: FetchRequest) -> Iterator[pd.DataFrame]:

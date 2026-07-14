@@ -9,12 +9,12 @@ import time
 from datetime import date, datetime, timedelta, timezone
 
 from src.core.interfaces import BatchDataSource, FetchRequest, Sink, StateStore
-from src.datasources.apis.yahoo.config import YahooConfig
+from src.datasources.apis.yahoo.config import OHLCVDailyConfig, OHLCVMinuteConfig
 
 logger = logging.getLogger(__name__)
 
 
-class OhlcvDailyPipeline:
+class StockMarketDataPipeline:
     """Watermark-driven incremental ingest of daily OHLCV bars."""
 
     SOURCE = "yahoo_ohlcv"
@@ -24,7 +24,7 @@ class OhlcvDailyPipeline:
         source: BatchDataSource,
         state: StateStore,
         sink: Sink,
-        config: YahooConfig,
+        config: OHLCVDailyConfig | OHLCVMinuteConfig,
     ):
         self._source = source
         self._state = state
@@ -50,7 +50,7 @@ class OhlcvDailyPipeline:
                 )
                 written += self._sink.write(
                     frame,
-                    table=self._source.schema.table,
+                    table=self._config.table,
                     natural_key=self._source.schema.natural_key,
                 )
                 self._advance_watermarks(frame)
@@ -64,9 +64,7 @@ class OhlcvDailyPipeline:
         groups: dict[date, list[str]] = {}
         for sym in symbols:
             wm = watermarks.get(sym)
-            start = (
-                self._config.history_floor if wm is None else wm + timedelta(days=1)
-            )
+            start = self._config.history_floor if wm is None else wm + timedelta(days=1)
             # end is exclusive: an empty [start, end) window means nothing new
             if start < end:
                 groups.setdefault(start, []).append(sym)
