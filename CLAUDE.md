@@ -59,4 +59,4 @@ Key architectural invariants:
 
 ## Documentation map
 
-`docs/TECHNICAL_SPEC.md` (full spec, build phases, repo layout) · `docs/data-dictionary.md` (every field, layer by layer) · `docs/edgar-incremental-ingestion.md` · `docs/infra-as-code.md` (Terraform for Snowflake/Kafka/Postgres) · `docs/cicd.md`.
+`docs/TECHNICAL_SPEC.md` (full spec, build phases, repo layout) · `docs/data-dictionary.md` (every field, layer by layer) · `docs/datasource-framework.md` (how datasources/pipelines/sinks are built + how to add one) · `docs/edgar-incremental-ingestion.md` · `docs/infra-as-code.md` (Terraform for Snowflake/Kafka/Postgres) · `docs/cicd.md`.
