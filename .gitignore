@@ -226,3 +226,6 @@ __marimo__/
 
 # mcp json
 .mcp.json
+
+# notebooks
+nbs/*

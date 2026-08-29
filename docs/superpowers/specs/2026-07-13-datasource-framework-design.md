@@ -258,7 +258,7 @@ A missing `EDGAR_USER_AGENT` or a rate limit above 10 is a startup error, not a 
 ### 7.1 HTTP
 
 ```python
-# src/core/http.py
+# src/factory/http.py
 def make_session(*, user_agent: str, rate_limit_per_sec: float | None = None,
                  timeout_sec: int = 30, retries: int = 3) -> RateLimitedSession:
     """One session factory for every REST datasource.
@@ -275,7 +275,7 @@ No datasource calls `requests` directly, and no datasource contains `time.sleep`
 ### 7.2 Errors
 
 ```python
-# src/core/errors.py
+# src/factory/errors.py
 class DataSourceError(Exception): ...
 class TransientError(DataSourceError): ...     # retryable: 5xx, timeout, socket drop
 class PermanentError(DataSourceError): ...     # not retryable: 403, bad config
@@ -392,7 +392,7 @@ When Kafka lands, the EDGAR *producer* is this pipeline with `KafkaSink` — the
 ## 10. State store
 
 ```python
-# src/core/state.py
+# src/factory/state.py
 class PostgresStateStore:
     """Watermarks in meta.watermarks (source, entity, watermark, updated_at)."""
 

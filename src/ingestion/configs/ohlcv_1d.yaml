@@ -1,0 +1,23 @@
+feed_name: "ohlcv_1d"
+type: "ohlcv_1d"
+full_load: false
+input_datasource:
+  type: "yahoo_ohlcv"
+  name: "ohlcv_1d_source"
+  interval: "1d"
+  batch_size: 100
+  sleep_seconds: 10
+  history_floor: "2000-01-01"
+output_datasource:
+  type: "postgres"
+  name: "ohlcv_1d_sink"
+  host: "HOST"
+  port: "PORT"
+  username: "AURUM_USERNAME"
+  password: "AURUM_PASSWORD"
+  db_name: "aurum"
+  db_schema: "public"
+  table: "ohlcv_1d"
+  cols_for_pk:
+    - "Symbol"
+    - "Date"

@@ -8,6 +8,7 @@ dependencies = [
     "dotenv>=0.9.9",
     "edgartools>=5.42.0",
     "pandas>=3.0.3",
+    "pandas-stubs>=3.0.5.260730",
     "psycopg2-binary>=2.9.12",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
