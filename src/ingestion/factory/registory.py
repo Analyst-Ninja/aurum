@@ -1,7 +1,11 @@
-from typing import Callable, Type, Dict
+from __future__ import annotations
 
-from src.ingestion.datasources.base_datasource import BaseDatasource
-from src.ingestion.feed.base_feed import BaseFeed
+from typing import TYPE_CHECKING, Callable, Dict, Type
+
+
+if TYPE_CHECKING:
+    from src.ingestion.feed.base_feed import BaseFeed
+    from src.ingestion.datasources.base_datasource import BaseDatasource
 
 DATASOURCE_REGISTRY: Dict[str, Type[BaseDatasource]] = {}
 FEED_REGISTRY: Dict[str, Type[BaseFeed]] = {}
@@ -21,5 +25,4 @@ def register_feed(name: str) -> Callable:
         FEED_REGISTRY[name] = cls
         return cls
     return decorator
-
 

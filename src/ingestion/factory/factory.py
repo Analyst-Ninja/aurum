@@ -1,7 +1,6 @@
 from typing import Dict
 
-from src.ingestion.factory.registory import FEED_REGISTRY
-from src.ingestion.factory.registory import DATASOURCE_REGISTRY
+from src.ingestion.factory.registory import FEED_REGISTRY, DATASOURCE_REGISTRY
 
 
 def create_datasource(config: Dict):
