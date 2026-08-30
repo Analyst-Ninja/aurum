@@ -27,6 +27,8 @@ class Database(BaseDatasource):
 
     def write_data(self, data: pd.DataFrame) -> None:
         # Fast bulk load method using PostgreSQL's COPY syntax
+        self.connect()
+        print("writing data")
         data.to_sql(
             name=self.config.get("table", ""),
             con=self.conn,

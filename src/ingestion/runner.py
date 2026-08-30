@@ -6,6 +6,7 @@ from src.ingestion.feed.base_feed import BaseFeed
 from src.utils.config_reader import read_config
 from src.ingestion.feed import ohlcv
 from src.ingestion.datasources.api.yahoo import ohlcv
+from src.ingestion.datasources.storage import db
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)

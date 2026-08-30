@@ -17,7 +17,7 @@ output_datasource:
   password: "AURUM_PASSWORD"
   db_name: "aurum"
   db_schema: "public"
-  table: "ohlcv_1d"
+  table: "ohlcv_1d_new"
   cols_for_pk:
     - "Symbol"
     - "Date"

@@ -43,9 +43,9 @@ class BaseFeed(ABC):
         try:
             self.logger.info(f"Starting feed execution: {self.feed_name} | date: {run_date} | execution_id: {execution_id}")
 
-            incremental = not full_load
-            data = self.input_ds.read(run_date, incremental=incremental)
-            self.metrics["incremental"] = incremental
+            # incremental = not full_load
+            data = self.input_ds.read_data()
+            # self.metrics["incremental"] = incremental
             self.metrics["run_date"] = run_date
             self.metrics["execution_id"] = execution_id
             self.metrics["row_count"] = len(data)
@@ -59,7 +59,7 @@ class BaseFeed(ABC):
 
             processed_data = self.process(data)
 
-            self.output_ds.write(processed_data)
+            self.output_ds.write_data(processed_data)
 
             self.metrics["end_time"] = datetime.now()
             self.metrics["execution_status"] = "SUCCESS_NO_DATA"
