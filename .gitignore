@@ -219,3 +219,13 @@ __marimo__/
 
 # .vscode
 .vscode/*
+
+# internal folders
+.codex/
+.idea/
+
+# mcp json
+.mcp.json
+
+# notebooks
+nbs/*
