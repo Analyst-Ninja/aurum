@@ -1,24 +1,24 @@
-feed_name: "income_stmts_yearly"
-type: "income_stmts_yearly"
+feed_name: "balance_sheet_stmts_yearly"
+type: "balance_sheet_stmts_yearly"
 full_load: true
 input_datasource:
   type: "edgar_financials"
-  name: "edgar_income_stmts_source"
-  stmt_type: "income"
+  name: "edgar_balance_sheet_stmts_source"
+  stmt_type: "balance_sheet"
   period: "annual"
   periods: 30
   max_workers: 10
   timeout: 10
 output_datasource:
   type: "postgres"
-  name: "edgar_income_stmts_sink"
+  name: "edgar_balance_sheet_stmts_sink"
   host: "HOST"
   port: "PORT"
   username: "AURUM_USERNAME"
   password: "AURUM_PASSWORD"
   db_name: "aurum"
   db_schema: "public"
-  table: "income_stmts_yearly"
+  table: "balance_sheet_stmts_yearly"
   primary_key: "MD5_HASH"
   cols_for_pk:
     - "SYMBOL"
