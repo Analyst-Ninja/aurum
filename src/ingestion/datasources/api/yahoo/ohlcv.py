@@ -19,7 +19,7 @@ class OHLCVDataSource(BaseDatasource):
         super().__init__(config)
         self.config = config
         self.logger = logging.getLogger(type(self).__name__)
-        self.user_agent = "a@gmai.com"
+        self.user_agent = "a@gmail.com"
         self.timeout = 100
 
     def read_data(
@@ -34,7 +34,7 @@ class OHLCVDataSource(BaseDatasource):
 
         for symbol in symbols:
             watermark = watermarks.get(symbol)
-            start = self.config.get("history_floor", datetime.today() - timedelta(days=7))
+            start = self.config.get("history_floor", (datetime.today() - timedelta(days=7)).strftime('%Y-%m-%d'))
             if watermark is not None:
                 start = watermark + timedelta(days=1)
                 if start >= run_day:
