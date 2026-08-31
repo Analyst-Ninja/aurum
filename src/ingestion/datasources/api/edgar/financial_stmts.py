@@ -12,8 +12,8 @@ from src.ingestion.datasources.base_datasource import BaseDatasource
 from src.utils.config_reader import read_config
 from src.utils.symbols import get_snp500_symbols
 
-@register_datasource("edgar_income_stmts")
-class IncomeStmtsDatasource(BaseDatasource):
+@register_datasource("edgar_financials")
+class FinancialStmtsDatasource(BaseDatasource):
     """Data source for income statements"""
 
     def __init__(self, config: Dict[str, Any]):
@@ -22,17 +22,26 @@ class IncomeStmtsDatasource(BaseDatasource):
         self.logger = logging.getLogger(type(self).__name__)
         self.user_agent = "a@gmail.com"
         self.timeout = config.get("timeout", 10)
+        self.period = config.get("period", "annual")
+        self.stmt_type = config.get("stmt_type", "income")
 
-    def _melt_income_statement(self, df: pd.DataFrame, ticker: str) -> pd.DataFrame:
+    def _melt_statement(self, df: pd.DataFrame, ticker: str) -> pd.DataFrame:
         """Melt a wide income statement (concept rows, FY period columns) into long format."""
         df = df.reset_index()  # bring 'concept' out of the index into a column
+        period_cols = []
+        var_name = ""
+        if self.period == "annual":
+            # Identify period columns vs identifier columns
+            period_cols = [c for c in df.columns if str(c).startswith("FY")]
+            var_name = "FY"
+        elif self.period == "quarterly":
+            period_cols = [c for c in df.columns if str(c).startswith("Q")]
+            var_name = "QTR"
 
-        # Identify FY period columns vs identifier columns
-        fy_cols = [c for c in df.columns if str(c).startswith("FY")]
-        id_vars = [c for c in df.columns if c not in fy_cols]
+        id_vars = [c for c in df.columns if c not in period_cols]
 
-        df_melted = pd.melt(df, id_vars=id_vars, value_vars=fy_cols,
-                            var_name='FY', value_name='value')
+        df_melted = pd.melt(df, id_vars=id_vars, value_vars=period_cols,
+                            var_name=var_name, value_name='value')
 
         # Uppercase all column names
         df_melted.columns = [x.upper() for x in df_melted.columns]
@@ -42,24 +51,30 @@ class IncomeStmtsDatasource(BaseDatasource):
 
         return df_melted
 
-    def _get_income_statement(self, ticker: str, periods: int = 20):
+    def _get_statement(self, ticker: str, periods: int = 20):
         """Fetch and melt the income statement for a single ticker. Returns (ticker, df_or_exception)."""
         try:
+            df = pd.DataFrame()
             company = Company(ticker)
-            income = company.income_statement(periods=periods)
-            df = income.to_dataframe()
-            df_melted = self._melt_income_statement(df, ticker)
+            if self.stmt_type == "income":
+                df = company.income_statement(periods=periods, period=self.period).to_dataframe()
+            elif self.stmt_type == "cashflow":
+                df = company.cash_flow_statement(periods=periods, period=self.period).to_dataframe()
+            elif self.stmt_type == "balance_sheet":
+                df = company.balance_sheet(periods=periods, period=self.period).to_dataframe()
+
+            df_melted = self._melt_statement(df, ticker)
             return ticker, df_melted
         except Exception as e:
             return ticker, e
 
-    def _get_all_income_statements(self, tickers: list[str], max_workers: int = 10) -> dict:
+    def _get_all_statements(self, tickers: list[str], max_workers: int = 10) -> dict:
         """Fetch and melt income statements for all tickers concurrently using a thread pool."""
         results = {}
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_ticker = {
-                executor.submit(self._get_income_statement, ticker): ticker
+                executor.submit(self._get_statement, ticker): ticker
                 for ticker in tickers
             }
 
@@ -83,7 +98,7 @@ class IncomeStmtsDatasource(BaseDatasource):
 
         set_identity(self.user_agent)
 
-        data = self._get_all_income_statements(tickers=symbols, max_workers=self.config.get("max_workers", 10))
+        data = self._get_all_statements(tickers=symbols, max_workers=self.config.get("max_workers", 10))
 
         return self._combine_results(results=data)
 
@@ -91,8 +106,8 @@ class IncomeStmtsDatasource(BaseDatasource):
         ...
 
 if __name__ == "__main__":
-    config_path = Path("/Users/codebase/Documents/codebase/aurum/src/ingestion/configs/edgar/income_statements_yearly.yaml")
+    config_path = Path("/Users/codebase/Documents/codebase/aurum/src/ingestion/configs/edgar/income_statements_quarterly.yaml")
     config = read_config(config_path).get("input_datasource")
-    obj = IncomeStmtsDatasource(config)
+    obj = FinancialStmtsDatasource(config)
     res = obj.read_data(run_date="2026-01-01",watermarks={})
-    print(res.head().columns)
+    print(res.head())
