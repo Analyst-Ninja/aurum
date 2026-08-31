@@ -1,7 +1,6 @@
 import logging
 from datetime import date, datetime, timedelta
 from itertools import batched
-from pathlib import Path
 from typing import Dict, Any
 import yfinance as yf
 
@@ -10,7 +9,6 @@ import pandas as pd
 from src.ingestion.factory.registory import register_datasource
 from src.ingestion.datasources.base_datasource import BaseDatasource
 from src.utils.symbols import get_snp500_symbols
-from src.utils.config_reader import read_config
 
 
 @register_datasource("yahoo_ohlcv")

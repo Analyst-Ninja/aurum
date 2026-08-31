@@ -26,3 +26,6 @@ dev = [
     "jupyter>=1.1.1",
     "plotly>=6.9.0",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"src/ingestion/runner.py" = ["F401"]

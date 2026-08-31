@@ -1,10 +1,8 @@
 import os
 from abc import abstractmethod
 from datetime import date
-from pathlib import Path
 from typing import Dict, Any
 
-import numpy as np
 from dotenv import load_dotenv
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -12,7 +10,6 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.ingestion.datasources.base_datasource import BaseDatasource
 from src.ingestion.factory.registory import register_datasource
-from src.utils.config_reader import read_config
 
 load_dotenv("/Users/codebase/Documents/codebase/aurum/.env")
 
