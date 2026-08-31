@@ -1,11 +1,11 @@
-feed_name: "income_stmts_yearly"
-type: "income_stmts_yearly"
+feed_name: "income_stmts_quarterly"
+type: "income_stmts_quarterly"
 full_load: true
 input_datasource:
   type: "edgar_income_stmts"
   name: "edgar_income_stmts_source"
-  period: "annual"
-  periods: 30
+  period: "quarterly"
+  periods: 120
   max_workers: 10
   timeout: 10
 output_datasource:
@@ -17,8 +17,8 @@ output_datasource:
   password: "AURUM_PASSWORD"
   db_name: "aurum"
   db_schema: "public"
-  table: "income_stmts_yearly"
+  table: "income_stmts_quarterly"
   primary_key: "MD5_HASH"
   cols_for_pk:
     - "SYMBOL"
-    - "FY"
+    - "QTR"
