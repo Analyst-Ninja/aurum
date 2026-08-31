@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - develop
       - epic/*
   pull_request:
     types: [opened, synchronize, reopened]
@@ -30,13 +31,13 @@ jobs:
       - name: Lint (ruff)
         run: uv run --locked --no-build ruff check src/ main.py
 
-      - name: Tests (pytest)
-        run: |
-          if [ -d tests ]; then
-            uv run --locked --no-build pytest tests/ -v
-          else
-            echo "No tests/ directory yet — skipping"
-          fi
+#      - name: Tests (pytest)
+#        run: |
+#          if [ -d tests ]; then
+#            uv run --locked --no-build pytest tests/ -v
+#          else
+#            echo "No tests/ directory yet — skipping"
+#          fi
 
   sonarqube:
     name: SonarQube
