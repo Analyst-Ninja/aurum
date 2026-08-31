@@ -1,5 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
+from datetime import date
 from typing import Any, Dict
 
 import pandas as pd
@@ -14,7 +15,7 @@ class BaseDatasource(ABC):
         self.logger.setLevel(logging.INFO)
 
     @abstractmethod
-    def read_data(self) -> pd.DataFrame: ...
+    def read_data(self, run_date: str,  watermarks: Dict[str, date]) -> pd.DataFrame: ...
 
     @abstractmethod
-    def write_data(self, data: pd.DataFrame): ...
+    def write_data(self, run_date: str, data: pd.DataFrame): ...

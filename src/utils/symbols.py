@@ -46,4 +46,4 @@ def get_snp500_symbols(user_agent: str | None, timeout: int = 100) -> list[str]:
     df = tables[0]
 
     # Extract the 'Symbol' column and convert it to a Python list
-    return df["Symbol"].tolist()[:50]
+    return df["Symbol"].tolist()

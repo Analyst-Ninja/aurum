@@ -1,13 +1,11 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from itertools import batched
-from logging import config
 from pathlib import Path
-from typing import Dict, Any, Generator
+from typing import Dict, Any
 import yfinance as yf
 
 import pandas as pd
-from pandas import DataFrame
 
 from src.ingestion.factory.registory import register_datasource
 from src.ingestion.datasources.base_datasource import BaseDatasource
@@ -23,26 +21,44 @@ class OHLCVDataSource(BaseDatasource):
         self.logger = logging.getLogger(type(self).__name__)
         self.user_agent = "a@gmai.com"
         self.timeout = 100
-        print(config)
 
-    def read_data(self):
-        symbols = get_snp500_symbols(self.user_agent, self.timeout)[:200]
+    def read_data(
+        self,
+        run_date: str,
+        watermarks: Dict[str, date] | None = None,
+    ) -> pd.DataFrame:
+        symbols = get_snp500_symbols(self.user_agent, self.timeout)
+        watermarks = watermarks or {}
+        run_day = datetime.strptime(run_date, "%Y-%m-%d").date()
+        groups: Dict[date | str, list[str]] = {}
+
+        for symbol in symbols:
+            watermark = watermarks.get(symbol)
+            start = self.config.get("history_floor", datetime.today() - timedelta(days=7))
+            if watermark is not None:
+                start = watermark + timedelta(days=1)
+                if start >= run_day:
+                    continue
+            groups.setdefault(start, []).append(symbol)
+
         frames = []
-        for chunk in batched(symbols, self.config.get("batch_size", 10)):
-            raw = yf.Tickers(list(chunk)).history(
-                start=self.config.get("history_floor", "2020-01-01"),
-                end=datetime.today() - timedelta(days=1),
-                interval=self.config.get("interval", "1d"),
-                auto_adjust=False,
-            )
-            if raw is None or raw.empty:
-                self.logger.info("no rows for chunk starting %s", chunk[0])
-                continue
-            frames.append(self._normalize(raw))
+        for start, grouped_symbols in groups.items():
+            for chunk in batched(grouped_symbols, self.config.get("batch_size", 100)):
+                raw = yf.Tickers(list(chunk)).history(
+                    start=start,
+                    end=run_day,
+                    interval=self.config.get("interval", "1d"),
+                    auto_adjust=False,
+                )
+                if raw is None or raw.empty:
+                    self.logger.info("no rows for chunk starting %s", chunk[0])
+                    continue
+                frames.append(self._normalize(raw))
 
-        return pd.concat(frames)
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
-    def write_data(self, data: pd.DataFrame) -> None:
+    def write_data(self, run_date:str, data: pd.DataFrame) -> None:
+        """Not Required for an API"""
         ...
 
     @staticmethod
@@ -65,10 +81,11 @@ class OHLCVDataSource(BaseDatasource):
         return out.copy()
 
 
-config = read_config(Path("/Users/codebase/Documents/codebase/aurum/src/ingestion/configs/ohlcv_1d.yaml"))["input_datasource"]
-ohlcv = OHLCVDataSource(config)
-print(ohlcv.name)
-print(ohlcv.logger)
-print(ohlcv.logger.name)
-df = ohlcv.read_data()
-print(df.shape)
+# if __name__ == "__main__":
+#     config = read_config(Path("/Users/codebase/Documents/codebase/aurum/src/ingestion/configs/ohlcv_1d.yaml"))["input_datasource"]
+#     ohlcv = OHLCVDataSource(config)
+#     print(ohlcv.name)
+#     print(ohlcv.logger)
+#     print(ohlcv.logger.name)
+#     df = ohlcv.read_data(datetime.today().strftime("%Y-%m-%d"))
+#     print(df.shape)
