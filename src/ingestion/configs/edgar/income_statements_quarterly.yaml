@@ -2,8 +2,9 @@ feed_name: "income_stmts_quarterly"
 type: "income_stmts_quarterly"
 full_load: true
 input_datasource:
-  type: "edgar_income_stmts"
+  type: "edgar_financials"
   name: "edgar_income_stmts_source"
+  stmt_type: "income"
   period: "quarterly"
   periods: 120
   max_workers: 10
