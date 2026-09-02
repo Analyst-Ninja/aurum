@@ -12,7 +12,7 @@ from src.ingestion.datasources.storage import db
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-def run_feed(config_path: str, run_date: str, full_load: bool = False):
+def run_feed(config_path: str, run_date: str, full_load: bool = True):
     """Runner for ingestion"""
 
     logger.info("Starting ingestion")

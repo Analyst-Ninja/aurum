@@ -27,6 +27,12 @@ dev = [
     "jupyter>=1.1.1",
     "plotly>=6.9.0",
 ]
+# dbt is a CLI, never imported by src/. Kept out of the default sync so CI's
+# --no-build install path does not have to build dbt-core's sdist-only
+# transitive dep (dbt-core-experimental-parser). Run it with: uv run --group dbt dbt ...
+dbt = [
+    "dbt-postgres>=1.11.0",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "src/ingestion/runner.py" = ["F401"]

@@ -19,6 +19,8 @@ flowchart LR
     SF --> MCP["FastMCP<br/>NL → SQL"] <--> U(["Users / AI agents"])
 ```
 
+The diagram above is the **target** architecture (spec v2.0). See [Current state](#current-state) for what runs today.
+
 ## How it works
 
 1. **Ingest** — three Kafka producers: a long-running websocket client streaming minute bars for the S&P 500, an incremental EDGAR poller (daily-index + watermark, never re-pulls history), and a news poller that scores sentiment with a fast ML classifier trained on LLM-labeled samples.
@@ -28,29 +30,39 @@ flowchart LR
 5. **Act** — the Realtime Inference Module joins the live stream with the trained model and emits explained trading decisions.
 6. **Ask** — a custom FastMCP server converts natural language to SQL over the gold marts.
 
-## Datasource framework
+## Ingestion framework
 
-Ingestion is built on a small, swappable framework so every data source (Yahoo, EDGAR, news) follows one pattern. Two layers meet through four tiny contracts:
+Ingestion is built on a small, config-driven framework so every data source (Yahoo, EDGAR, news) follows one pattern. Two layers meet through two contracts, and a YAML file supplies all the wiring:
 
-- **Datasource** — a pure API client. Its only job is `fetch(FetchRequest) → Iterator[DataFrame]`. No database, no Kafka, no throttling.
-- **Pipeline** — the workflow. It reads watermarks to decide *what* to fetch, calls the datasource, then writes results through a **Sink**, advancing state so the next run skips what's already stored.
+- **Datasource** (`BaseDatasource`) — reads from one API or writes to one store: `read_data(run_date, watermarks)` / `write_data(run_date, df)`. Sinks add `get_watermarks()`.
+- **Feed** (`BaseFeed`) — the workflow. It reads watermarks to decide *what* to fetch, calls the input datasource, transforms the frame in `process()`, stamps run metadata plus a deterministic MD5 key, and writes through the output datasource.
 
 ```
-FetchRequest ─▶ BatchDataSource.fetch() ─▶ validated DataFrame ─▶ Sink.write() ─▶ Postgres
-                        ▲                                              ▲
-                   YahooConfig                              StateStore (watermarks)
+configs/*.yaml ─▶ runner ─▶ factory ─▶ Feed.run()
+                                        ├─ output_ds.get_watermarks()   (incremental)
+                                        ├─ input_ds.read_data()         (Yahoo / EDGAR)
+                                        ├─ process()  +  RUN_DATE, EXECUTION_ID, MD5_HASH
+                                        └─ output_ds.write_data()       ─▶ Postgres
 ```
 
-The four contracts (`src/core/interfaces.py`) — `BatchDataSource`, `StateStore`, `Sink`, and the `FetchRequest` value object — let any piece be swapped without touching the others: send data to Kafka by changing only the sink, replace yfinance by writing one new datasource, add EDGAR by adding one folder. Record schemas (pydantic `BaseRecord`) declare their table and natural key once, so validation, writes, and dedup all read from the same source of truth.
+Feeds and datasources register themselves by name (`@register_feed`, `@register_datasource`) and the factory resolves them from the config's `type`, so swapping the sink, replacing yfinance, or adding a source never touches existing code — one class, one YAML, one import line in `runner.py`.
 
 **Run it:**
 
 ```bash
-uv run pytest tests/ -v     # 32 tests, no network or DB
-uv run main.py              # incremental OHLCV → Postgres (needs .env)
+# Yahoo daily OHLCV — full load (the default; needs .env)
+uv run python -m src.ingestion.cli -c src/ingestion/configs/yahoo/ohlcv_1d.yaml
+
+# same feed, incremental from the landing-table watermark
+uv run python -m src.ingestion.cli -c src/ingestion/configs/yahoo/ohlcv_1d.yaml -f False
+
+# EDGAR quarterly income statements for a given run date
+uv run python -m src.ingestion.cli -c src/ingestion/configs/edgar/income_statements_quarterly.yaml -d 2026-01-01
+
+uv run ruff check src/ main.py   # lint (the CI gate)
 ```
 
-See the [Datasource Framework Guide](docs/datasource-framework.md) for diagrams, a step-by-step run walkthrough, and the recipe for adding a new source.
+See the [Ingestion Framework Guide](docs/datasource-framework.md) for diagrams, a step-by-step run walkthrough, the recipe for adding a new source, and the known rough edges.
 
 ## Tech stack
 
@@ -61,15 +73,29 @@ Kafka · Postgres · Apache Airflow · Snowflake · dbt · Python 3.12 (uv) · s
 | Doc | Content |
 |-----|---------|
 | [Technical Specification](docs/TECHNICAL_SPEC.md) | Full architecture, component specs, constraints, build phases |
-| [Datasource Framework Guide](docs/datasource-framework.md) | How datasources, pipelines, and sinks connect; how to add a source |
+| [Ingestion Framework Guide](docs/datasource-framework.md) | How datasources, feeds, and configs connect; how to add a source |
 | [Data Dictionary](docs/data-dictionary.md) | Every field, layer by layer, with formulas and gotchas |
 | [EDGAR Incremental Ingestion](docs/edgar-incremental-ingestion.md) | Daily-index + watermark strategy for fetching only new filings |
 | [Infrastructure as Code](docs/infra-as-code.md) | Terraform for Snowflake objects, Kafka topics, Postgres roles |
 | [CI/CD Pipeline](docs/cicd.md) | GitHub Actions: lint, tests, SonarQube quality gate, Terraform validation |
 
-## Status
+## Current state
 
-Design phase complete (spec v2.0, 2026-07-12). Implementation: Phase 0 — infra bootstrap.
+Design phase complete (spec v2.0, 2026-07-12). Implementation is mid-Phase 0 — most of the architecture above is not built yet.
+
+**Working today**
+
+- `src/ingestion/` — the config-driven framework described above. Yahoo OHLCV (1d, 1min) and EDGAR income / cash-flow / balance-sheet statements (yearly + quarterly) land **directly in Postgres**; Kafka is not in the code path yet.
+- Watermark-based incremental loading against the landing tables.
+- CI: ruff lint + SonarCloud quality gate on `main`, `develop`, `epic/*`, and PRs.
+
+**Not built yet**
+
+- Kafka producers/consumers, the realtime websocket feed, and news ingestion.
+- Airflow DAGs (`airflow/` is a placeholder) and the Terraform under `infra/`.
+- The dbt project (`src/transformation/aurum_dwh/`) exists but still holds `dbt init` example models and currently targets local **Postgres**, not Snowflake.
+- ML training / SHAP (`src/modeling/`), realtime inference (`src/inference/`), and the FastMCP server (`src/mcp/`) — placeholders.
+- Tests. `tests/` is empty and the pytest step in CI is commented out.
 
 ## Data sources & cost
 

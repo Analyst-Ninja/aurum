@@ -10,6 +10,7 @@ from edgar import Company, set_identity
 from src.ingestion.factory.registory import register_datasource
 from src.ingestion.datasources.base_datasource import BaseDatasource
 from src.utils.config_reader import read_config
+from src.utils.env import get_sec_user_agent
 from src.utils.symbols import get_snp500_symbols
 
 @register_datasource("edgar_income_stmts")
@@ -20,7 +21,7 @@ class IncomeStmtsDatasource(BaseDatasource):
         super().__init__(config)
         self.config = config
         self.logger = logging.getLogger(type(self).__name__)
-        self.user_agent = "a@gmail.com"
+        self.user_agent = get_sec_user_agent()
         self.timeout = config.get("timeout", 10)
 
     def _melt_income_statement(self, df: pd.DataFrame, ticker: str) -> pd.DataFrame:
