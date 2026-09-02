@@ -8,6 +8,7 @@ import pandas as pd
 
 from src.ingestion.factory.registory import register_datasource
 from src.ingestion.datasources.base_datasource import BaseDatasource
+from src.utils.env import get_sec_user_agent
 from src.utils.symbols import get_snp500_symbols
 
 
@@ -17,8 +18,8 @@ class OHLCVDataSource(BaseDatasource):
         super().__init__(config)
         self.config = config
         self.logger = logging.getLogger(type(self).__name__)
-        self.user_agent = "a@gmail.com"
-        self.timeout = 100
+        self.user_agent = get_sec_user_agent()
+        self.timeout = config.get("timeout", 100)
 
     def read_data(
         self,

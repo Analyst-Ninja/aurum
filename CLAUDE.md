@@ -4,59 +4,101 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-AURUM is early in implementation (Phase 0 — infra bootstrap). Design is complete (spec v2.0); most of the target system does not exist yet. `main.py` is a placeholder and `src/` currently holds only Yahoo Finance datasource stubs (`batch_ds.py` still has `pass`-body methods). Treat `docs/TECHNICAL_SPEC.md` as the source of truth for what to build and where it goes — build phases and target repo layout live in sections 5–6.
+AURUM is mid-Phase-0. The **design** (`docs/TECHNICAL_SPEC.md`, spec v2.0) describes the full target system — Kafka backbone, Snowflake medallion, ML + MCP server. Most of that does not exist yet.
+
+What actually exists and runs today:
+
+- `src/ingestion/` — a working config-driven ingestion framework (Yahoo OHLCV + EDGAR financial statements → **Postgres directly**, no Kafka in the code path yet).
+- `src/transformation/aurum_dwh/` — a dbt project, still on the `dbt init` example models, pointed at **Postgres** (not Snowflake).
+- `src/feed/`, `src/inference/`, `src/mcp/`, `src/modeling/`, `airflow/`, `infra/` — empty `__init__.py` placeholders. `main.py` is empty.
+- `tests/` exists but holds no tests; the pytest step in CI is commented out.
+
+`README.md` ("Current state") and `docs/datasource-framework.md` describe the code as it is; `docs/TECHNICAL_SPEC.md` describes the target. `repo_structure.md` is an aspirational tree and does not match `src/`.
 
 ## Commands
 
-Package/venv managed with **uv** (Python 3.12). The CI (`.github/workflows/ci.yml`) is the canonical command set:
+Package/venv managed with **uv** (Python 3.12).
 
 ```bash
 uv sync --locked --no-build          # install deps from uv.lock
-uv run ruff check src/ main.py       # lint (ruff)
+uv run ruff check src/ main.py       # lint (ruff) — the CI gate
 uv run ruff check --fix src/ main.py # lint + autofix
-uv run pytest tests/ -v              # tests (tests/ dir does not exist yet)
+uv run pytest tests/ -v              # tests (no tests written yet)
 uv run pytest tests/path::test_name  # run a single test
-uv run main.py                       # run entrypoint (currently a placeholder)
+
+# run an ingestion feed (config drives everything)
+uv run python -m src.ingestion.cli -c src/ingestion/configs/yahoo/ohlcv_1d.yaml            # full load
+uv run python -m src.ingestion.cli -c src/ingestion/configs/yahoo/ohlcv_1d.yaml -f False   # incremental
+uv run python -m src.ingestion.cli -c src/ingestion/configs/edgar/income_statements_quarterly.yaml -d 2026-01-01
+#   -c/--config  path to feed YAML     -d/--run_date  default today
+#   -f/--full_load  True|False, default True — False resumes from the watermarks
+
+# dbt (project dir must be the dbt project root)
+# dbt lives in the `dbt` dependency group, NOT the default sync — the --group flag is required
+cd src/transformation/aurum_dwh && uv run --group dbt dbt debug|run|test
 ```
 
-When adding a dependency, use `uv add <pkg>` so `pyproject.toml` and `uv.lock` stay in sync — CI runs `--locked` and fails on drift.
+Add dependencies with `uv add <pkg>` — CI runs `--locked` and fails on `pyproject.toml`/`uv.lock` drift.
 
-## Architecture
+**Dependency groups.** `dbt-postgres` sits in a `dbt` group rather than `[project].dependencies`, because dbt is a CLI that `src/` never imports. This keeps it out of the default sync: `dbt-core` pulls `dbt-core-experimental-parser`, which publishes an sdist with no wheel and so cannot install under CI's `--no-build`. Anything importable by `src/` belongs in `[project].dependencies`; tooling belongs in a group.
 
-AURUM is a streaming financial-data platform with a Kafka backbone and two consumption paths. Data flows one direction through distinct stages, each a separate `src/` package (see spec §5):
+## Ingestion framework (`src/ingestion/`)
+
+This is the only substantial subsystem. One YAML config fully specifies a run; nothing is wired in Python.
 
 ```
-datasources/apis  →  producers  →  Kafka topics  →  consumers  →  Postgres (landing)
-                                                                      │ Airflow incremental load
-                                                                      ▼
-                                                    Snowflake  RAW → SILVER → GOLD  (dbt medallion)
-                                                                      │
-                                        ┌─────────────────────────────┴───────────────┐
-                                        ▼                                               ▼
-                              ml/ (train + SHAP)                              mcp_server/ (FastMCP NL→SQL)
-                                        │
-                                        ▼
-                        inference/ (live stream + model → trading decisions)
+configs/*.yaml ──▶ runner.run_feed() ──▶ factory.create_feed()  ──▶ Feed.run(run_date, full_load)
+                                          │                            │
+                                          └ create_datasource() ×2      ├ output_ds.get_watermarks()   (incremental only)
+                                            (input + output)            ├ input_ds.read_data(run_date, watermarks)
+                                                                        ├ Feed.process(df)      ← the only per-feed code
+                                                                        ├ _add_write_metadata() ← RUN_DATE, EXECUTION_ID, MD5_HASH
+                                                                        └ output_ds.write_data(run_date, df)
 ```
 
-Three ingestion domains, each with its own producer→topic→consumer chain — they never share code paths:
-- **Market** — `yahoo` websocket, minute OHLCV → `market.ohlcv.1m`
-- **EDGAR** — SEC 10-K/10-Q/8-K + XBRL facts → `edgar.filings`, ingested **incrementally** (daily-index + watermark, never re-pulls history — see `docs/edgar-incremental-ingestion.md`)
-- **News** — headlines scored by a sentiment classifier → `news.sentiment`
+- **Registry, not imports** — `@register_datasource("yahoo_ohlcv")` / `@register_feed("ohlcv_1d")` (`factory/registory.py`) populate dicts the factory looks up by the config's `type`. Decorators only fire when the module is imported, so **every new feed/datasource module must be imported in `src/ingestion/runner.py`** or the factory raises "type not supported". That file's `F401` unused-import warnings are deliberately ignored in `pyproject.toml`.
+- **`BaseDatasource`** (`datasources/base_datasource.py`) — `read_data(run_date, watermarks) -> DataFrame` + `write_data(run_date, df)`. API sources stub out `write_data`; sinks stub out `read_data`. `datasources/api/` = read side, `datasources/storage/` = write side.
+- **`BaseFeed`** (`feed/base_feed.py`) — owns the whole run loop, metrics, and error swallowing (`run()` catches everything and returns a metrics dict; it does **not** raise). Subclasses implement only `process()`.
+- **Incremental by watermark** — when `full_load` resolves to `False`, the feed calls `output_ds.get_watermarks(group_by, date_column)`, which `SELECT MAX(date) GROUP BY symbol` on the landing table; the datasource then starts each symbol the day after its watermark. A missing table returns `{}` (first run) rather than erroring. Don't add full-refresh paths. `-f/--full_load` is an explicit `True|False` and **defaults to `True`**, so incremental runs need `-f False`; the YAML's `full_load` key is not read.
+- **Column convention: uppercase.** Feeds uppercase every column in `process()`; configs, `cols_for_pk`, and watermark columns are all uppercase (`SYMBOL`, `DATE`, `QTR`). Postgres identifiers are quoted, so case matters.
+- **Deterministic PK** — `_add_write_metadata` md5s the `cols_for_pk` values into the `primary_key` column. Both keys are required in the output config or the run fails.
+- Config secrets are **env var *names***, not values: `username: "AURUM_USERNAME"` is `os.getenv`-ed at connect time from `.env` (`HOST`, `PORT`, `AURUM_USERNAME`, `AURUM_PASSWORD`, `SEC_USER_AGENT`).
 
-Key architectural invariants:
-- **Consumers write idempotently** to Postgres; the EDGAR dedup rule keeps the latest `filed_date` per `(cik, metric, period_end)` so amendments supersede.
-- **Incremental everywhere** — Airflow loads Postgres→Snowflake incrementally, EDGAR never does full re-pulls. Don't introduce full-refresh logic.
-- The **medallion** (dbt): RAW mirrors landing, SILVER engineers financials/technicals, GOLD is ML-ready feature marts. Both the ML pipeline and the MCP server read only from GOLD.
-- Scope is **equities only** (S&P 500), minute-level (no tick data), decisions are emitted not auto-traded. All data sources are free — no paid vendors.
+Adding a source: new class in `datasources/api/<vendor>/` with `@register_datasource`, new feed in `feed/` with `@register_feed`, new YAML in `configs/<vendor>/`, then import both in `runner.py`.
+
+## Target architecture (spec §5 — not yet built)
+
+```
+datasources/apis → producers → Kafka topics → consumers → Postgres (landing)
+                                                              │ Airflow incremental load
+                                                              ▼
+                                             Snowflake RAW → SILVER → GOLD (dbt medallion)
+                                                              │
+                                       ┌──────────────────────┴──────────────┐
+                                       ▼                                     ▼
+                            modeling/ (train + SHAP)              mcp/ (FastMCP NL→SQL)
+                                       │
+                                       ▼
+                          inference/ (live stream + model → decisions)
+```
+
+Three ingestion domains that never share code paths: **Market** (Yahoo, minute OHLCV → `market.ohlcv.1m`), **EDGAR** (10-K/10-Q/8-K + XBRL → `edgar.filings`, incremental via daily-index + watermark — see `docs/edgar-incremental-ingestion.md`), **News** (headlines → `news.sentiment`; not started).
+
+Invariants to preserve:
+- Consumers/sinks write **idempotently**; EDGAR dedup keeps the latest `filed_date` per `(cik, metric, period_end)` so amendments supersede.
+- **Incremental everywhere** — no full re-pulls, no full-refresh loads.
+- Medallion: RAW mirrors landing, SILVER engineers financials/technicals, GOLD is ML-ready marts. ML and MCP read **only** from GOLD.
+- Scope: equities only (S&P 500), minute-level, free data sources only; decisions are emitted, never auto-traded.
 
 ## Conventions & gotchas
 
-- **SEC EDGAR** requires an honest `User-Agent` and is rate-limited to 10 req/s — respect this in any EDGAR client.
-- **SonarCloud** quality gate runs on every push/PR (`sonar-project.properties`, org `analyst-ninja`); `docs/**` and `nbs/**` are excluded from analysis.
-- CI runs on `main`, `epic/*`, and PRs. GitHub Actions pin third-party actions by full commit SHA — keep that when editing workflows.
-- Notebooks in `nbs/` are exploration only, not part of the shipped system.
+- **SEC EDGAR / Wikipedia** need an honest `User-Agent` (403 otherwise) and EDGAR is capped at 10 req/s. Get it from `src.utils.env.get_sec_user_agent()` (reads `SEC_USER_AGENT`, raises if unset) — don't hardcode one. `src/utils/env.load_env()` is the single `.env` loader; never `load_dotenv` an absolute path.
+- The dbt profile `aurum_dwh` (`~/.dbt/profiles.yml`) targets local **Postgres** `aurum`, schema `bronze`. A separate `aurum` profile points at Snowflake. Models under `models/example/` are dbt scaffolding, not real models.
+- **SonarCloud** gates every push/PR (`sonar-project.properties`, org `analyst-ninja`); `docs/**` and `nbs/**` excluded.
+- CI (`.github/workflows/ci.yml`) runs on `main`, `develop`, `epic/*`, and PRs — **lint + Sonar only**, tests are commented out. `terraform.yml` validates `infra/terraform/**`, which doesn't exist yet; plan/apply is deliberately local-only (`docs/infra-as-code.md` §5).
+- GitHub Actions are pinned by full commit SHA — keep that when editing workflows.
+- `nbs/` notebooks are exploration only; several source files still carry `if __name__ == "__main__":` scratch blocks with absolute `/Users/codebase/...` paths — don't copy that pattern.
 
 ## Documentation map
 
-`docs/TECHNICAL_SPEC.md` (full spec, build phases, repo layout) · `docs/data-dictionary.md` (every field, layer by layer) · `docs/datasource-framework.md` (how datasources/pipelines/sinks are built + how to add one) · `docs/edgar-incremental-ingestion.md` · `docs/infra-as-code.md` (Terraform for Snowflake/Kafka/Postgres) · `docs/cicd.md`.
+`docs/TECHNICAL_SPEC.md` (spec, build phases, target layout) · `docs/data-dictionary.md` (fields per layer) · `docs/dwh-medallion-plan.md` (approved but **unbuilt** plan for the dbt bronze/silver/gold layers + ML feature set) · `docs/edgar-incremental-ingestion.md` · `docs/infra-as-code.md` (Terraform for Snowflake/Kafka/Postgres) · `docs/cicd.md` · `docs/datasource-framework.md` (ingestion framework as built: registry/factory/feed flow, config reference, rough edges) · `repo_structure.md` (aspirational tree — does not match `src/`).

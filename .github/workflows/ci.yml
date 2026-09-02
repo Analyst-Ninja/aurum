@@ -25,11 +25,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Ruff is a static analyser — it never imports project dependencies, so the
+      # lint job installs the dev group only. dbt lives in its own `dbt` group
+      # (see pyproject.toml) and is excluded from the default sync either way.
       - name: Install dependencies
-        run: uv sync --locked --no-build
+        run: uv sync --locked --no-build --only-group dev
 
       - name: Lint (ruff)
-        run: uv run --locked --no-build ruff check src/ main.py
+        run: uv run --locked --no-build --only-group dev ruff check src/ main.py
 
 #      - name: Tests (pytest)
 #        run: |

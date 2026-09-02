@@ -3,15 +3,15 @@ from abc import abstractmethod
 from datetime import date
 from typing import Dict, Any
 
-from dotenv import load_dotenv
 import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.ingestion.datasources.base_datasource import BaseDatasource
 from src.ingestion.factory.registory import register_datasource
+from src.utils.env import load_env
 
-load_dotenv("/Users/codebase/Documents/codebase/aurum/.env")
+load_env()
 
 class Database(BaseDatasource):
 
