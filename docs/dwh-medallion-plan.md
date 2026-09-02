@@ -385,12 +385,13 @@ Files: `models/gold/mart_*.sql`, `models/gold/_gold_models.yml`
 
 ```bash
 cd src/transformation/aurum_dwh
-uv run dbt debug                       # Postgres aurum reachable, profile aurum_dwh
-uv run dbt deps && uv run dbt seed
-uv run dbt build --select bronze       # models + tests, layer at a time
-uv run dbt build --select silver
-uv run dbt build --select gold
-uv run dbt test --select tag:leakage   # the assert_no_lookahead / target-edge tests
+# dbt is in the `dbt` dependency group, not the default sync — --group dbt is required
+uv run --group dbt dbt debug                     # Postgres aurum reachable, profile aurum_dwh
+uv run --group dbt dbt deps && uv run --group dbt dbt seed
+uv run --group dbt dbt build --select bronze     # models + tests, layer at a time
+uv run --group dbt dbt build --select silver
+uv run --group dbt dbt build --select gold
+uv run --group dbt dbt test --select tag:leakage # assert_no_lookahead / target-edge tests
 ```
 
 Then the checks dbt cannot make for you:

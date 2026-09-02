@@ -34,10 +34,13 @@ uv run python -m src.ingestion.cli -c src/ingestion/configs/edgar/income_stateme
 #   -f/--full_load  True|False, default True — False resumes from the watermarks
 
 # dbt (project dir must be the dbt project root)
-cd src/transformation/aurum_dwh && uv run dbt debug|run|test
+# dbt lives in the `dbt` dependency group, NOT the default sync — the --group flag is required
+cd src/transformation/aurum_dwh && uv run --group dbt dbt debug|run|test
 ```
 
 Add dependencies with `uv add <pkg>` — CI runs `--locked` and fails on `pyproject.toml`/`uv.lock` drift.
+
+**Dependency groups.** `dbt-postgres` sits in a `dbt` group rather than `[project].dependencies`, because dbt is a CLI that `src/` never imports. This keeps it out of the default sync: `dbt-core` pulls `dbt-core-experimental-parser`, which publishes an sdist with no wheel and so cannot install under CI's `--no-build`. Anything importable by `src/` belongs in `[project].dependencies`; tooling belongs in a group.
 
 ## Ingestion framework (`src/ingestion/`)
 

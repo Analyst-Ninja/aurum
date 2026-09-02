@@ -156,7 +156,6 @@ name = "aurum"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "dbt-postgres" },
     { name = "dotenv" },
     { name = "edgartools" },
     { name = "pandas" },
@@ -173,6 +172,9 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+dbt = [
+    { name = "dbt-postgres" },
+]
 dev = [
     { name = "jupyter" },
     { name = "plotly" },
@@ -182,7 +184,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dbt-postgres", specifier = ">=1.11.0" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "edgartools", specifier = "==5.53.0" },
     { name = "pandas", specifier = "==3.0.5" },
@@ -199,6 +200,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+dbt = [{ name = "dbt-postgres", specifier = ">=1.11.0" }]
 dev = [
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "plotly", specifier = ">=6.9.0" },
