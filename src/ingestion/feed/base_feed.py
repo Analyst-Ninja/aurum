@@ -64,8 +64,12 @@ class BaseFeed(ABC):
     def process(self, data: pd.DataFrame) -> pd.DataFrame:
         pass
 
-    def run(self, run_date: str, full_load: bool= True):
-        """Main execution logic"""
+    def run(self, run_date: str, full_load: bool = True):
+        """Main execution logic.
+
+        Runs a full load by default; pass ``full_load=False`` to resume from the
+        output datasource's watermarks.
+        """
 
         execution_id = self._generate_execution_id()
 
@@ -101,7 +105,7 @@ class BaseFeed(ABC):
             self.output_ds.write_data(run_date, processed_data)
 
             self.metrics["end_time"] = datetime.now()
-            self.metrics["execution_status"] = "SUCCESS_NO_DATA"
+            self.metrics["execution_status"] = "SUCCESS"
             self.logger.info(f"Feed {self.feed_name} execution complete")
 
         except Exception as e:
