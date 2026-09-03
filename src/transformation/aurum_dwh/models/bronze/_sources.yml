@@ -1,0 +1,176 @@
+version: 2
+
+sources:
+  # Tables written directly by src/ingestion. Nothing in dbt writes here, and
+  # no model outside bronze may reference this source: every downstream layer
+  # reads a br_* model instead, so the dedup and typing rules are applied once.
+  - name: landing
+    schema: public
+    database: aurum
+    description: >
+      Raw append-only output of the ingestion framework. Column names are
+      uppercase and quoted, types are whatever pandas inferred on write, and
+      re-runs append duplicate rows rather than upserting.
+
+    tables:
+      - name: ohlcv_1d
+        description: Daily OHLCV bars per symbol from yfinance.
+        # RUN_DATE is stored as text, so freshness needs an explicit cast.
+        loaded_at_field: "\"RUN_DATE\"::timestamp"
+        freshness:
+          warn_after: {count: 3, period: day}
+          error_after: {count: 14, period: day}
+        # Column names carry embedded double quotes. The ingestion framework
+        # writes uppercase identifiers, and Postgres folds an unquoted DATE to
+        # `date`, which does not exist. Without the inner quotes the generated
+        # test SQL fails with `column "date" does not exist`.
+        columns:
+          - name: '"SYMBOL"'
+            description: Ticker. Part of the natural key.
+            data_tests: [not_null]
+          - name: '"DATE"'
+            description: Bar date, stored as timestamp at midnight.
+            data_tests: [not_null]
+          - name: '"MD5_HASH"'
+            description: >
+              Deterministic hash of the config cols_for_pk (SYMBOL, DATE),
+              written by BaseFeed._add_write_metadata. The dedup key.
+            data_tests: [not_null]
+
+      - name: ohlcv_1min
+        description: Daily OHLCV bars per symbol from yfinance.
+        # RUN_DATE is stored as text, so freshness needs an explicit cast.
+        loaded_at_field: "\"RUN_DATE\"::timestamp"
+        freshness:
+          warn_after: {count: 3, period: day}
+          error_after: {count: 14, period: day}
+        # Column names carry embedded double quotes. The ingestion framework
+        # writes uppercase identifiers, and Postgres folds an unquoted DATE to
+        # `date`, which does not exist. Without the inner quotes the generated
+        # test SQL fails with `column "date" does not exist`.
+        columns:
+          - name: '"SYMBOL"'
+            description: Ticker. Part of the natural key.
+            data_tests: [not_null]
+          - name: '"DATE"'
+            description: Bar timestamp.
+            data_tests: [not_null]
+          - name: '"MD5_HASH"'
+            description: >
+              Deterministic hash of the config cols_for_pk (SYMBOL, DATE),
+              written by BaseFeed._add_write_metadata. The dedup key.
+            data_tests: [not_null]
+
+      - name: income_stmts_quarterly
+        description: Quarterly income statement data.
+        # RUN_DATE is stored as text, so freshness needs an explicit cast.
+        loaded_at_field: "\"RUN_DATE\"::timestamp"
+        freshness:
+          warn_after: {count: 3, period: day}
+          error_after: {count: 14, period: day}
+        # Column names carry embedded double quotes. The ingestion framework
+        # writes uppercase identifiers, and Postgres folds an unquoted DATE to
+        # `date`, which does not exist. Without the inner quotes the generated
+        # test SQL fails with `column "date" does not exist`.
+        columns:
+          - name: '"SYMBOL"'
+            description: Ticker. Part of the natural key.
+            data_tests: [not_null]
+          - name: '"MD5_HASH"'
+            description: >
+              Deterministic hash of the config cols_for_pk (SYMBOL, DATE),
+              written by BaseFeed._add_write_metadata. The dedup key.
+            data_tests: [not_null]
+
+      - name: income_stmts_yearly
+        description: Yearly income statement data.
+        # RUN_DATE is stored as text, so freshness needs an explicit cast.
+        loaded_at_field: "\"RUN_DATE\"::timestamp"
+        freshness:
+          warn_after: {count: 3, period: day}
+          error_after: {count: 14, period: day}
+        # Column names carry embedded double quotes. The ingestion framework
+        # writes uppercase identifiers, and Postgres folds an unquoted DATE to
+        # `date`, which does not exist. Without the inner quotes the generated
+        # test SQL fails with `column "date" does not exist`.
+        columns:
+          - name: '"SYMBOL"'
+            description: Ticker. Part of the natural key.
+            data_tests: [not_null]
+          - name: '"MD5_HASH"'
+            description: >
+              Deterministic hash of the config cols_for_pk (SYMBOL, DATE),
+              written by BaseFeed._add_write_metadata. The dedup key.
+            data_tests: [not_null]
+
+      - name: cashflow_stmts_quarterly
+        description: Quarterly cash flow statement data.
+        # RUN_DATE is stored as text, so freshness needs an explicit cast.
+        loaded_at_field: "\"RUN_DATE\"::timestamp"
+        freshness:
+          warn_after: {count: 3, period: day}
+          error_after: {count: 14, period: day}
+        # Column names carry embedded double quotes; see ohlcv_1d above for why.
+        columns:
+          - name: '"SYMBOL"'
+            description: Ticker. Part of the natural key.
+            data_tests: [not_null]
+          - name: '"MD5_HASH"'
+            description: >
+              Deterministic hash of the config cols_for_pk (SYMBOL, QTR,
+              CONCEPT), written by BaseFeed._add_write_metadata. The dedup key.
+            data_tests: [not_null]
+
+      - name: cashflow_stmts_yearly
+        description: Yearly cash flow statement data.
+        # RUN_DATE is stored as text, so freshness needs an explicit cast.
+        loaded_at_field: "\"RUN_DATE\"::timestamp"
+        freshness:
+          warn_after: {count: 3, period: day}
+          error_after: {count: 14, period: day}
+        # Column names carry embedded double quotes; see ohlcv_1d above for why.
+        columns:
+          - name: '"SYMBOL"'
+            description: Ticker. Part of the natural key.
+            data_tests: [not_null]
+          - name: '"MD5_HASH"'
+            description: >
+              Deterministic hash of the config cols_for_pk (SYMBOL, FY,
+              CONCEPT), written by BaseFeed._add_write_metadata. The dedup key.
+            data_tests: [not_null]
+
+      - name: balance_sheet_stmts_quarterly
+        description: Quarterly balance sheet data.
+        # RUN_DATE is stored as text, so freshness needs an explicit cast.
+        loaded_at_field: "\"RUN_DATE\"::timestamp"
+        freshness:
+          warn_after: {count: 3, period: day}
+          error_after: {count: 14, period: day}
+        # Column names carry embedded double quotes; see ohlcv_1d above for why.
+        columns:
+          - name: '"SYMBOL"'
+            description: Ticker. Part of the natural key.
+            data_tests: [not_null]
+          - name: '"MD5_HASH"'
+            description: >
+              Deterministic hash of the config cols_for_pk (SYMBOL, QTR,
+              CONCEPT), written by BaseFeed._add_write_metadata. The dedup key.
+            data_tests: [not_null]
+
+      - name: balance_sheet_stmts_yearly
+        description: Yearly balance sheet data.
+        # RUN_DATE is stored as text, so freshness needs an explicit cast.
+        loaded_at_field: "\"RUN_DATE\"::timestamp"
+        freshness:
+          warn_after: {count: 3, period: day}
+          error_after: {count: 14, period: day}
+        # Column names carry embedded double quotes; see ohlcv_1d above for why.
+        columns:
+          - name: '"SYMBOL"'
+            description: Ticker. Part of the natural key.
+            data_tests: [not_null]
+          - name: '"MD5_HASH"'
+            description: >
+              Deterministic hash of the config cols_for_pk (SYMBOL, FY,
+              CONCEPT), written by BaseFeed._add_write_metadata. The dedup key.
+            data_tests: [not_null]
