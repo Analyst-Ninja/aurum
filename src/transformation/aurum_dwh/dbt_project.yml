@@ -41,6 +41,10 @@ models:
       +schema: gold
       +materialized: table
 
+seeds:
+  aurum_dwh:
+    +schema: bronze
+
 vars:
   # Point-in-time guard. EDGAR ingestion carries no filed_date, so fundamentals
   # are treated as knowable at period_end + lag rather than at their true filing
