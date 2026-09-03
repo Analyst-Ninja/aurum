@@ -23,3 +23,4 @@ output_datasource:
   cols_for_pk:
     - "SYMBOL"
     - "FY"
+    - "CONCEPT"

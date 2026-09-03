@@ -133,4 +133,150 @@ models:
         data_tests:
           - not_null
 
+  - name: br_income_stmts_quarterly
+    description: >
+      Typed, deduplicated mirror of public.income_stmts_quarterly.
+      Income statements data on quarterly
+    data_tests:
+      # The whole point of the layer: dedup actually happened.
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, concept, qtr]
+
+    columns:
+      - name: md5_hash
+        description: Deterministic PK from the ingestion config cols_for_pk.
+        data_tests:
+          - unique
+          - not_null
+
+      - name: symbol
+        data_tests:
+          - not_null
+
+      - name: qtr
+        description: Quarter
+        data_tests:
+          - not_null
+
+      - name: concept
+        description: Concept for the income statements
+        data_tests:
+          - not_null
+
+      - name: label
+        description: Label for concept
+        data_tests:
+          - not_null
+
+      - name: depth
+        description: depth
+
+      - name: is_abstract
+        description: Flag for heading only (not having actual value in statements)
+        data_tests:
+          - not_null
+
+      - name: is_total
+        description: Flag for recognising the final value (not having intermediate value in statements)
+        data_tests:
+          - not_null
+
+      - name: confidence
+        description: Confidence
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+                arguments:
+                  min_value: 0
+                  max_value: 1
+
+      - name: value
+        description: financials value
+
+      - name: run_date
+        description: Ingestion run date. Drives the incremental lookback window.
+        data_tests:
+          - not_null
+
+      - name: execution_id
+        description: >
+          YYYYMMDD_HHMMSSssssss stamp per feed run. Sorts chronologically as a
+          string, which is what the dedup ordering relies on.
+        data_tests:
+          - not_null
+
+  - name: br_income_stmts_yearly
+    description: >
+      Typed, deduplicated mirror of public.income_stmts_yearly.
+      Income statements data on yearly
+    data_tests:
+      # The whole point of the layer: dedup actually happened.
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, concept, fy]
+
+    columns:
+      - name: md5_hash
+        description: Deterministic PK from the ingestion config cols_for_pk.
+        data_tests:
+          - unique
+          - not_null
+
+      - name: symbol
+        data_tests:
+          - not_null
+
+      - name: fy
+        description: Fiscal Year
+        data_tests:
+          - not_null
+
+      - name: concept
+        description: Concept for the income statements
+        data_tests:
+          - not_null
+
+      - name: label
+        description: Label for concept
+        data_tests:
+          - not_null
+
+      - name: depth
+        description: depth
+
+      - name: is_abstract
+        description: Flag for heading only (not having actual value in statements)
+        data_tests:
+          - not_null
+
+      - name: is_total
+        description: Flag for recognising the final value (not having intermediate value in statements)
+        data_tests:
+          - not_null
+
+      - name: confidence
+        description: Confidence
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+                arguments:
+                  min_value: 0
+                  max_value: 1
+
+      - name: value
+        description: financials value
+
+      - name: run_date
+        description: Ingestion run date. Drives the incremental lookback window.
+        data_tests:
+          - not_null
+
+      - name: execution_id
+        description: >
+          YYYYMMDD_HHMMSSssssss stamp per feed run. Sorts chronologically as a
+          string, which is what the dedup ordering relies on.
+        data_tests:
+          - not_null
+
 

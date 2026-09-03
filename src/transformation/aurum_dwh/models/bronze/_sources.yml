@@ -60,3 +60,45 @@ sources:
               Deterministic hash of the config cols_for_pk (SYMBOL, DATE),
               written by BaseFeed._add_write_metadata. The dedup key.
             data_tests: [not_null]
+
+      - name: income_stmts_quarterly
+        description: Quarterly income statement data.
+        # RUN_DATE is stored as text, so freshness needs an explicit cast.
+        loaded_at_field: "\"RUN_DATE\"::timestamp"
+        freshness:
+          warn_after: {count: 3, period: day}
+          error_after: {count: 14, period: day}
+        # Column names carry embedded double quotes. The ingestion framework
+        # writes uppercase identifiers, and Postgres folds an unquoted DATE to
+        # `date`, which does not exist. Without the inner quotes the generated
+        # test SQL fails with `column "date" does not exist`.
+        columns:
+          - name: '"SYMBOL"'
+            description: Ticker. Part of the natural key.
+            data_tests: [not_null]
+          - name: '"MD5_HASH"'
+            description: >
+              Deterministic hash of the config cols_for_pk (SYMBOL, DATE),
+              written by BaseFeed._add_write_metadata. The dedup key.
+            data_tests: [not_null]
+
+      - name: income_stmts_yearly
+        description: Yearly income statement data.
+        # RUN_DATE is stored as text, so freshness needs an explicit cast.
+        loaded_at_field: "\"RUN_DATE\"::timestamp"
+        freshness:
+          warn_after: {count: 3, period: day}
+          error_after: {count: 14, period: day}
+        # Column names carry embedded double quotes. The ingestion framework
+        # writes uppercase identifiers, and Postgres folds an unquoted DATE to
+        # `date`, which does not exist. Without the inner quotes the generated
+        # test SQL fails with `column "date" does not exist`.
+        columns:
+          - name: '"SYMBOL"'
+            description: Ticker. Part of the natural key.
+            data_tests: [not_null]
+          - name: '"MD5_HASH"'
+            description: >
+              Deterministic hash of the config cols_for_pk (SYMBOL, DATE),
+              written by BaseFeed._add_write_metadata. The dedup key.
+            data_tests: [not_null]
