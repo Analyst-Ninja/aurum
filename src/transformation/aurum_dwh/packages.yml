@@ -1,0 +1,12 @@
+packages:
+  # Surrogate keys, date_spine, star, pivot. Used across bronze dedup and the
+  # silver fundamentals pivot.
+  - package: dbt-labs/dbt_utils
+    version: [">=1.4.0", "<2.0.0"]
+
+  # Range and distribution tests for the engineered features (e.g. rsi_14
+  # between 0 and 100, net_margin within a sane band).
+  # Namespace is metaplane, not calogica: dbt deps warns that calogica is
+  # deprecated and redirects here.
+  - package: metaplane/dbt_expectations
+    version: [">=0.10.0", "<0.11.0"]
