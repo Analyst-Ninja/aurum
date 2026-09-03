@@ -22,7 +22,7 @@ class Ohlcv1min(BaseFeed):
     def process(self, data: pd.DataFrame) -> pd.DataFrame:
         """Process OHLCV 1 min data"""
 
-        self.logger.info("Processing OHLCV 1D data")
+        self.logger.info("Processing OHLCV 1min data")
 
         cols = [col.upper() for col in data.columns]
         data.columns = cols

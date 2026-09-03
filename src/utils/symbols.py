@@ -44,6 +44,7 @@ def get_snp500_symbols(user_agent: str | None, timeout: int = 100) -> list[str]:
     # The first table contains the company list
     tables = pd.read_html(StringIO(response.text))
     df = tables[0]
+    df["Symbol"] = df["Symbol"].str.replace(".", "-")
 
     # Extract the 'Symbol' column and convert it to a Python list
     return df["Symbol"].tolist()
