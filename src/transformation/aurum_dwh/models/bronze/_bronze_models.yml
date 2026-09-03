@@ -68,3 +68,69 @@ models:
           string, which is what the dedup ordering relies on.
         data_tests:
           - not_null
+
+  - name: br_ohlcv_1min
+    description: >
+      Typed, deduplicated mirror of public.ohlcv_1min. One row per (symbol, date).
+      Prices are as-landed and NOT split-adjusted - stg_ohlcv_daily applies the
+      adjustment factor. Bad ticks (zero volume, null close) are still present
+      here by design; bronze mirrors, silver cleans.
+    data_tests:
+      # The whole point of the layer: dedup actually happened.
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, datetime]
+
+    columns:
+      - name: md5_hash
+        description: Deterministic PK from the ingestion config cols_for_pk.
+        data_tests:
+          - unique
+          - not_null
+
+      - name: symbol
+        data_tests:
+          - not_null
+
+      - name: datetime
+        description: Bar date, cast from the landing timestamp.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                # Guards against a parsing error producing epoch or far-future
+                # dates.
+                min_value: "'1990-01-01'::timestamp"
+                max_value: "current_date + 1"
+
+      - name: close
+        description: Unadjusted closing price. Null on some landed rows.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                strictly: true
+                # ~500 landed rows carry a null close; the test would otherwise
+                # fail on rows bronze is required to preserve.
+                row_condition: "close is not null"
+
+      - name: volume
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "volume is not null"
+
+      - name: run_date
+        description: Ingestion run date. Drives the incremental lookback window.
+        data_tests:
+          - not_null
+
+      - name: execution_id
+        description: >
+          YYYYMMDD_HHMMSSssssss stamp per feed run. Sorts chronologically as a
+          string, which is what the dedup ordering relies on.
+        data_tests:
+          - not_null
+
+
