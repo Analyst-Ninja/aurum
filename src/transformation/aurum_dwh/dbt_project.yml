@@ -57,10 +57,40 @@ vars:
   # Risk-free rate for Sharpe (annual, decimal). Divided by 252 for daily use.
   risk_free_annual: 0.045
 
-  # History re-read by incremental models carrying rolling windows. MUST exceed
-  # the longest window (252d) with headroom for non-trading days. A shorter
-  # value silently yields NULL long-window features on every incremental run.
-  window_lookback_days: 400
+  # History RE-READ by incremental models carrying rolling windows. This is the
+  # input frame, not the output range - see window_rewrite_days below.
+  #
+  # Must exceed the longest EFFECTIVE window plus the rewrite tail, measured in
+  # CALENDAR days. Two corrections are baked into this number:
+  #
+  #   1. 252 TRADING days is ~366 CALENDAR days. The original 400 left only
+  #      ~23 trading days of usable tail.
+  #   2. Windows COMPOUND when nested. max_drawdown_252d is a 252-row min over
+  #      drawdown_252d, which is itself measured against a 252-row peak, so its
+  #      effective history is 504 trading days - not 252. Sizing for 252 left it
+  #      wrong by up to 0.39 on 2,472 of 11,113 recent rows.
+  #
+  # 900 calendar days is ~621 trading days: 559 of warm-up behind a
+  # 62-trading-day tail, against the 504 actually required.
+  #
+  # THE RULE, stated correctly: a feature built from a window of N rows over a
+  # value that itself spans M rows needs warm-up for N + M, and
+  # window_lookback_days must cover that PLUS window_rewrite_days.
+  window_lookback_days: 900
+
+  # Output range of those same models: only rows in this tail are re-emitted.
+  #
+  # The read frame's leading edge is WARM-UP - the first bar of the frame has no
+  # lag() predecessor, the first 49 have no full ma_50, the first 251 have no
+  # full 252-day window. Emitting those rows would replace correct history with
+  # degraded values on every run. Emitting only the tail means every written row
+  # saw a complete frame, so an incremental run is bit-identical to a full
+  # refresh.
+  #
+  # Also, the maximum the pipeline may lapse: a gap longer than this leaves dates
+  # that no run ever writes. tests/assert_technicals_cover_all_bars.sql fails
+  # loudly if that happens rather than leaving a silent hole.
+  window_rewrite_days: 90
 
   # Tradability filters applied when building the training set.
   min_price: 1.0
