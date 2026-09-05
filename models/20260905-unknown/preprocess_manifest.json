@@ -1,0 +1,27 @@
+{
+  "source_table": "gold.mart_training_set",
+  "rows_in": 2895171,
+  "filters": [
+    {
+      "name": "null_target",
+      "param": "fwd_ret_5d_excess",
+      "dropped": 2515
+    },
+    {
+      "name": "warmup_burnin",
+      "param": 252,
+      "dropped": 126320
+    },
+    {
+      "name": "min_cross_section",
+      "param": 100,
+      "dropped": 48
+    }
+  ],
+  "rows_out": 2766288,
+  "target": "fwd_ret_5d_excess",
+  "target_transforms": [
+    "winsorize_1_99_per_date",
+    "standardize_per_date"
+  ]
+}

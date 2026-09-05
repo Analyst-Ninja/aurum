@@ -34,7 +34,9 @@ dbt = [
     "dbt-postgres>=1.11.0",
 ]
 modeling = [
+    "lightgbm>=4.7.0",
     "pyarrow>=25.0.0",
+    "scipy>=1.18.1",
 ]
 
 [tool.ruff.lint.per-file-ignores]
