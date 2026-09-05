@@ -12,7 +12,7 @@
     last known row rather than vanishing, and price_date says plainly how stale
     that row is.
 
-    Column contract: docs/data-dictionary.md, screener table. Two documented
+    Column contract: docs/warehouse/data-dictionary.md, screener table. Two documented
     deviations from that table, both because it describes the target v2 system
     rather than what is built:
 

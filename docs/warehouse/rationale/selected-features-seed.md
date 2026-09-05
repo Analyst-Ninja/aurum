@@ -2,13 +2,26 @@
 
 > Companion to `src/transformation/aurum_dwh/seeds/selected_features.csv`.
 > Created 2026-09-03, currently holding a single placeholder row.
-> Real content arrives in Phase 4 (#36), once a model exists to produce it.
+> Real content arrives in **Phase 6** ([#55](https://github.com/Analyst-Ninja/aurum/issues/55)),
+> once a model exists to produce it.
+>
+> **This document is the consumer side** — the seed's schema, why it is a seed rather than a table,
+> and how `mart_feature_summary` reads it. The **producer** — what computes the SHAP ranking and
+> writes this file — is [`../../modeling/feature-selection-shap.md`](../../modeling/feature-selection-shap.md).
+>
+> Two corrections since this was written. The phase was renumbered: the SHAP loop belongs to
+> **Phase 6 (modelling)**, not Phase 4 (#36), which shipped the GOLD marts that the loop reads.
+> And §2 below describes the compile-time `run_query` mechanism as designed; the **shipped**
+> `mart_feature_summary` uses `load_relation` plus an intersection against `mart_training_set`'s
+> real columns, with a fallback to the full panel when nothing matches — see
+> [`gold-models-rationale.md`](gold-models-rationale.md) §6 for the as-built version. The failure
+> modes described in §2 are unchanged and still apply.
 
 ---
 
 ## 1. What this seed is for
 
-`docs/TECHNICAL_SPEC.md` §3.7 describes a feedback loop: train a model on GOLD features, compute SHAP values, prune the low-importance ones, and materialise the surviving set as `mart_feature_summary` — the narrowed view used for retraining.
+`docs/architecture/TECHNICAL_SPEC.md` §3.7 describes a feedback loop: train a model on GOLD features, compute SHAP values, prune the low-importance ones, and materialise the surviving set as `mart_feature_summary` — the narrowed view used for retraining.
 
 This seed **is** that loop's state. It carries the SHAP ranking from the last training run, and `mart_feature_summary` builds itself from whatever it contains.
 
@@ -101,7 +114,7 @@ ret_21d,1,0.0,true,placeholder
 
 ### Why `selected` and `model_version` were added
 
-`docs/dwh-medallion-plan.md` originally specified `feature_name,rank,mean_abs_shap`. Both additions close real gaps.
+The approved plan (now folded into `docs/warehouse/dwh-medallion.md`) originally specified `feature_name,rank,mean_abs_shap`. Both additions close real gaps.
 
 **`selected` — because rank alone has no cutoff.** If the SHAP loop writes all ~90 ranked features, the mart selects all 90, which makes it identical to `mart_training_set` and therefore pointless. Encoding the cutoff by *truncating the file* would work but throws away the ranking of everything below the line — exactly the data you need to decide whether the cutoff was right. Keeping the full ranking with an explicit flag lets you retune the threshold without rerunning SHAP.
 
@@ -179,6 +192,6 @@ That last one is worth a guard rather than a convention. `tests/assert_no_target
 
 ## 8. References
 
-- `docs/TECHNICAL_SPEC.md` §3.7 — modeling, SHAP selection, walk-forward validation
-- `docs/dwh-medallion-plan.md` — Phase 4, `mart_feature_summary`
+- `docs/architecture/TECHNICAL_SPEC.md` §3.7 — modeling, SHAP selection, walk-forward validation
+- `docs/warehouse/dwh-medallion.md` — the warehouse as built; `mart_feature_summary` and the SHAP loop
 - Issue #36 — GOLD marts, where the real ranking gets produced

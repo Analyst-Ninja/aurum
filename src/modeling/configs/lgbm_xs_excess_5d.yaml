@@ -1,0 +1,41 @@
+# Cross-sectional 5-day excess-return model.
+# Credentials are env var NAMES, resolved from the repo-root .env at connect time.
+
+source:
+  db_schema: gold
+  table: mart_training_set
+  db_name: aurum
+  host: HOST
+  port: PORT
+  username: AURUM_USERNAME
+  password: AURUM_PASSWORD
+
+# Market-neutral: fwd_ret_5d minus the cross-sectional mean that date. Training on
+# the raw fwd_ret_5d makes SHAP collapse onto market-regime columns that carry no
+# ranking information — see docs/modeling/modeling-design.md section 2.1.
+target: fwd_ret_5d_excess
+
+cache:
+  dir: data/training
+  enabled: true
+
+# The hyperparameter grid, hand-specified. One entry by default: a large search over
+# a noisy objective manufactures overfitting and inflates n_configs_tried, which then
+# deflates every Sharpe reported downstream. Add entries here to widen it — the code
+# does not change, and n_configs_tried follows automatically.
+#
+# These regularize far harder than LightGBM's defaults, which are tuned for clean
+# data. min_child_samples=20 would let a leaf fit 20 rows out of 2.7M.
+train:
+  grid:
+    - num_leaves: 31
+      min_child_samples: 2000
+      learning_rate: 0.03
+      # Low because the _z / _decile / _vs_sector triplets are heavily collinear;
+      # sampling columns decorrelates the trees.
+      feature_fraction: 0.4
+      lambda_l2: 10.0
+      # A cap. Early stopping on mean per-date Spearman IC decides where to stop —
+      # not L2, which on a return target is dominated by a handful of earnings gaps.
+      n_estimators: 1500
+      early_stopping_rounds: 100

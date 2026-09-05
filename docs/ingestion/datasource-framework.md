@@ -2,7 +2,7 @@
 
 > A developer's map of how datasources and feeds are built, wired, and run.
 > This document describes the code that exists today in `src/ingestion/`. The target
-> architecture (Kafka, Snowflake, ML, MCP) lives in `docs/TECHNICAL_SPEC.md`.
+> architecture (Kafka, Snowflake, ML, MCP) lives in `docs/architecture/TECHNICAL_SPEC.md`.
 
 ---
 

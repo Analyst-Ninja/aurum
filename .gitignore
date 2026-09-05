@@ -229,3 +229,16 @@ __marimo__/
 
 # notebooks
 nbs/*
+
+# modelling artifacts — anchored to the repo root, so the src/modeling/data package
+# is still tracked. Unanchored, `data/` matches a directory of that name at any depth.
+/data/
+
+# Model runs are only partly ignored, on purpose. The bulk is regenerable and stays
+# out; metadata.json (and later metrics.json, shap/ranking.csv) are tracked, so a
+# change in a run's provenance or performance shows up as a diff in a pull request
+# rather than in a directory nobody opens.
+/models/*/model.txt
+/models/*/backtest/positions.parquet
+/models/latest
+/models/.latest.*

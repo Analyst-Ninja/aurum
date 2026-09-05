@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-13
 **Status:** Approved design
-**Scope:** How every datasource in AURUM is structured, configured, tested, and extended. Governs `src/core/`, `src/datasources/`, `src/pipelines/`, and `configs/`. Does **not** change the platform architecture in `docs/TECHNICAL_SPEC.md` — datasources remain the API-client layer feeding producers/pipelines.
+**Scope:** How every datasource in AURUM is structured, configured, tested, and extended. Governs `src/core/`, `src/datasources/`, `src/pipelines/`, and `configs/`. Does **not** change the platform architecture in `docs/architecture/TECHNICAL_SPEC.md` — datasources remain the API-client layer feeding producers/pipelines.
 
 ---
 
@@ -23,7 +23,7 @@ This spec defines the framework once so that adding a datasource is a recipe, no
 2. **Small frozen interfaces.** Four protocols (`BatchDataSource`, `StreamingDataSource`, `StateStore`, `Sink`) are the contract everything composes through. They are designed to be stable; implementations behind them are replaceable (yfinance is explicitly "replaceable adapter" per TECHNICAL_SPEC §4).
 3. **Cadence-agnostic incrementality.** A pipeline run works identically whether it runs daily, monthly, or quarterly: read watermark, compute the gap, fetch the gap, advance watermark after a successful write. EDGAR especially — filings arrive quarterly per company and the daily index catches up over any gap length.
 4. **Configuration is typed and validated at startup.** pydantic-settings models per source, values layered YAML → env → `.env`. Invalid config fails fast with a clear error, never mid-run.
-5. **Schemas are the single source of truth.** One pydantic record model per landing table, mirroring `docs/data-dictionary.md`, carrying its own natural key. Sinks, dedup, and validation all read from the schema.
+5. **Schemas are the single source of truth.** One pydantic record model per landing table, mirroring `docs/warehouse/data-dictionary.md`, carrying its own natural key. Sinks, dedup, and validation all read from the schema.
 6. **Idempotent by construction.** Sinks upsert on natural keys (`ON CONFLICT DO NOTHING`), so replays, retries, and overlapping fetch windows are safe.
 
 ## 3. Repository layout
@@ -146,7 +146,7 @@ Why an *iterator of DataFrames* for batch: preserves today's fetch-batch → wri
 `src/core/schemas.py`:
 
 ```python
-"""Base record model. One subclass per landing table, mirroring docs/data-dictionary.md."""
+"""Base record model. One subclass per landing table, mirroring docs/warehouse/data-dictionary.md."""
 
 from typing import ClassVar
 
@@ -322,7 +322,7 @@ EDGAR — same interface, different internals. The daily-index catch-up loop dem
 ```python
 # src/datasources/apis/edgar/batch_ds.py
 class EdgarFactsDataSource:
-    """Incremental EDGAR facts via the daily index (docs/edgar-incremental-ingestion.md)."""
+    """Incremental EDGAR facts via the daily index (docs/ingestion/edgar-incremental-ingestion.md)."""
 
     schema = EdgarFact
 
@@ -385,7 +385,7 @@ class OhlcvDailyPipeline:
         return groups
 ```
 
-The EDGAR pipeline is the same shape with one watermark entity (`"daily_index"`) instead of per-symbol, and it advances the watermark only after all facts for a day are published — matching the producer algorithm in `docs/edgar-incremental-ingestion.md`. Run it daily, monthly, or quarterly; the gap computation is identical.
+The EDGAR pipeline is the same shape with one watermark entity (`"daily_index"`) instead of per-symbol, and it advances the watermark only after all facts for a day are published — matching the producer algorithm in `docs/ingestion/edgar-incremental-ingestion.md`. Run it daily, monthly, or quarterly; the gap computation is identical.
 
 When Kafka lands, the EDGAR *producer* is this pipeline with `KafkaSink` — the datasource does not change.
 
@@ -408,7 +408,7 @@ Migration note: day one, the OHLCV pipeline may keep deriving watermarks from `M
 
 ## 11. Recipe: adding a new datasource
 
-1. **Schema** — add `src/datasources/apis/<name>/schemas.py` with a `BaseRecord` subclass mirroring the `docs/data-dictionary.md` entry; declare `table` + `natural_key`.
+1. **Schema** — add `src/datasources/apis/<name>/schemas.py` with a `BaseRecord` subclass mirroring the `docs/warehouse/data-dictionary.md` entry; declare `table` + `natural_key`.
 2. **Config** — add `<name>/config.py` (`BaseSettings` subclass, `env_prefix`) and `configs/<name>.yaml`. Bake API invariants (rate limits, required headers) into validators.
 3. **Datasource** — implement `fetch()` (batch) or `subscribe/stream/close` (streaming). Use `core.http.make_session` — no direct `requests`, no `time.sleep`, no DB access.
 4. **Pipeline** — compose source + `StateStore` + `Sink` in `src/pipelines/<name>_<cadence>.py`. Watermark advance only after successful write.

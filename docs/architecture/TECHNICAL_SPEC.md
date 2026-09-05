@@ -187,7 +187,7 @@ News API ─────P──► news.sentiment ─────┘            
 
 #### 3.1.2 EDGAR Producer (`edgar_producer`)
 
-- **Purpose:** Daily poller implementing the incremental strategy (see `docs/edgar-incremental-ingestion.md`). Reads EDGAR's daily `master.idx`, filters to S&P 500 CIKs and forms `10-K`/`10-Q`/`8-K`, pulls `companyfacts` XBRL for the filers only, publishes one message per new fact.
+- **Purpose:** Daily poller implementing the incremental strategy (see `docs/ingestion/edgar-incremental-ingestion.md`). Reads EDGAR's daily `master.idx`, filters to S&P 500 CIKs and forms `10-K`/`10-Q`/`8-K`, pulls `companyfacts` XBRL for the filers only, publishes one message per new fact.
 - **Interface:** Publishes JSON to `edgar.filings`, keyed by `cik`.
   ```json
   {
@@ -275,7 +275,7 @@ Database `AURUM`, warehouse `COMPUTE_WH`, dbt adapter `dbt-snowflake`.
 - **Incremental:** silver models use dbt `is_incremental()` on `_ingested_at` / `filed_date`.
 - **Tests:** not-null/unique keys, positive volume, valid tickers, accepted `form_type` values.
 
-Field-level detail: `docs/data-dictionary.md`.
+Field-level detail: `docs/warehouse/data-dictionary.md`.
 
 ### 3.7 ML Training Pipeline
 
@@ -289,6 +289,15 @@ Field-level detail: `docs/data-dictionary.md`.
 - **Interface:** input = GOLD tables; output = versioned model artifact + SHAP report.
 - **Dependencies:** Snowflake reader, Python ML stack (scikit-learn/XGBoost/LightGBM + `shap`).
 - **Validation:** walk-forward (time-series) splits only — no random shuffles; leakage guard: features at time *t* must use data filed/observed ≤ *t* (respect EDGAR `filed_date`, not `period_end`).
+
+> **Detailed design, 2026-09-05 — [`docs/modeling/`](../modeling/modeling-design.md).** Phase 6 is
+> specified in five documents and tracked as epic [#50](https://github.com/Analyst-Ninja/aurum/issues/50).
+> Three points above are refined there: the training frame is `GOLD.mart_training_set`, not
+> `mart_features` (which carries no targets, by construction); the artifact is `model.txt`
+> (LightGBM native) rather than `model.pkl`, which does not survive library-version drift; and
+> walk-forward splits alone are **not sufficient** — the five-day horizon on daily bars overlaps
+> labels across the fold boundary, so purge and embargo are required. Backtesting, cost modelling
+> and the retraining policy are additions to this section, not refinements of it.
 
 ### 3.8 Realtime Inference Module
 
@@ -345,12 +354,13 @@ aurum/
 │   ├── consumers/               # kafka → postgres writers
 │   ├── inference/               # realtime inference module
 │   ├── ml/                      # training, SHAP selection, registry
+│                                #   NOTE: the repo uses src/modeling/, not src/ml/. The repo wins.
 │   └── mcp_server/              # FastMCP NL→SQL server
 ├── dbt/                         # dbt-snowflake project (raw sources, silver, gold)
 ├── airflow/dags/                # load + quality + retrain DAGs
 ├── infra/
 │   ├── docker-compose.yml       # runtime: kafka, postgres, airflow
-│   └── terraform/               # IaC: snowflake objects, kafka topics, postgres roles (see docs/infra-as-code.md)
+│   └── terraform/               # IaC: snowflake objects, kafka topics, postgres roles (see docs/operations/infra-as-code.md)
 ├── nbs/                         # exploration notebooks
 ├── docs/
 │   ├── TECHNICAL_SPEC.md        # this document
@@ -366,7 +376,7 @@ aurum/
 
 | Phase | Deliverable | Effort |
 |-------|-------------|--------|
-| 0 | Infra: docker-compose Kafka + Postgres + Airflow; Terraform for Snowflake objects, Kafka topics, Postgres roles ([infra-as-code.md](infra-as-code.md)) | 1.5d |
+| 0 | Infra: docker-compose Kafka + Postgres + Airflow; Terraform for Snowflake objects, Kafka topics, Postgres roles ([infra-as-code.md](../operations/infra-as-code.md)) | 1.5d |
 | 1 | EDGAR producer (incremental, daily-index) + consumer → Postgres | 2d |
 | 2 | Market websocket producer + consumer → Postgres | 2d |
 | 3 | Airflow incremental load Postgres → Snowflake RAW | 1d |
@@ -382,7 +392,7 @@ aurum/
 
 1. **News source** — which API (free tier)? Candidates: Finnhub, NewsAPI, GDELT, RSS aggregation. Decision needed before Phase 5.
 2. **Yahoo websocket reliability** — unofficial; confirm minute-bar coverage for 500 tickers on one connection, else shard producers.
-3. **Prediction target** — forward return horizon (1d? 5d?) and classification vs regression. Decide at Phase 6 start.
+3. ~~**Prediction target** — forward return horizon (1d? 5d?) and classification vs regression. Decide at Phase 6 start.~~ **Resolved 2026-09-05:** 5 trading days, **regression on `fwd_ret_5d_excess`** (log return minus the cross-sectional mean that date). Classification (`label_up_5d`) and ranking (`fwd_ret_5d_xs_decile`) are trained as secondary heads for comparison. Rationale — including the measured SHAP collapse onto market-regime columns when the raw return is used — in [`docs/modeling/modeling-design.md`](../modeling/modeling-design.md) §2.
 4. **Postgres pruning policy** — exact retention after Snowflake load confirmation.
 5. **Model registry** — flat files now; adopt MLflow when retraining becomes regular.
 
