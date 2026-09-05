@@ -1,0 +1,290 @@
+version: 2
+
+# NOTE on syntax: dbt 1.12 requires arguments to generic tests to be nested
+# under an `arguments:` key. Passing them at the top level still runs but emits
+# MissingArgumentsPropertyInGenericTestDeprecation.
+#
+# NOTE on the range tests below. The bounds are the ones named in GH-36, and
+# they are kept - but at a THRESHOLD severity rather than zero-tolerance,
+# because a handful of rows genuinely sit outside them and no bound that is
+# honest about the data would exclude them:
+#
+#   net_margin below -10  a quarter where revenue collapsed to near zero while
+#                         losses did not. 14,339 rows of 2.94M (0.49%).
+#   price_to_earnings     eps_ttm within a rounding error of zero makes the
+#     beyond +/-1000      ratio explode. 8,623 rows of 2.94M (0.29%). This is
+#                         exactly why earnings_yield, not price_to_earnings, is
+#                         what the cross-sectional block ranks on.
+#
+# The error thresholds are set at roughly twice the measured counts. The test
+# therefore still does its real job - catching a unit error, a sign flip or a
+# division that produced an infinity, all of which would move the count by
+# orders of magnitude - while a normal build stays green. rsi_14 has no such
+# allowance: it is clamped at source and any violation is a bug.
+
+models:
+  # =====================================================================
+  - name: mart_features
+    description: >
+      THE feature store. Grain (symbol, date). Technicals, point-in-time
+      fundamentals, valuation ratios, market regime and calendar flags, plus a
+      cross-sectional block (_z winsorized then z-scored, _decile, _vs_sector)
+      computed per date across the universe. Contains NO target columns by
+      construction - this is what live inference reads. Materialized as a full
+      table because the cross-sectional transforms are whole-panel
+      computations.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, date]
+
+    columns:
+      - name: symbol
+        description: Ticker. Restricted to the S&P 500 universe by an inner join to stg_companies.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_companies')
+                field: symbol
+
+      - name: date
+        description: Trading date of the bar. Every feature is knowable as of the close on this date.
+        data_tests:
+          - not_null
+
+      - name: sector
+        description: >
+          GICS sector from the S&P 500 seed. Required, not decorative - it is
+          the grouping key behind every _vs_sector column.
+        data_tests:
+          - not_null
+
+      - name: fundamental_available_from
+        description: >
+          THE point-in-time guard, carried up from silver under a name that
+          says what it is. The date the attached filing became knowable
+          (fiscal_period_end plus the lag var). NULL on early history, before
+          a symbol had any visible filing. tests/assert_no_lookahead.sql
+          asserts it never exceeds `date`.
+
+      - name: days_since_available
+        description: >
+          Staleness of the attached fundamental in days. A feature in its own
+          right, and the diagnostic that makes a broken lag visible - it can
+          never be negative.
+
+      - name: adj_close
+        description: Split- and dividend-adjusted close. Every technical is computed on this series.
+        data_tests:
+          - not_null
+
+      - name: close_raw
+        description: >
+          Unadjusted close, adj_close / adj_factor. The price actually paid on
+          the day, which is what the valuation ratios divide and what the
+          tradability filter in mart_training_set screens on.
+
+      - name: net_margin
+        description: Net income TTM over revenue TTM. Negative for a loss-making company, which is the honest answer.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -10
+                max_value: 1
+              config:
+                severity: error
+                warn_if: ">0"
+                error_if: ">30000"
+
+      - name: price_to_earnings
+        description: >
+          Raw close over trailing-twelve-month EPS. Explodes as eps_ttm
+          approaches zero; earnings_yield is the well-behaved inverse and is
+          what the cross-sectional ranking uses.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -1000
+                max_value: 1000
+              config:
+                severity: error
+                warn_if: ">0"
+                error_if: ">20000"
+
+      - name: rsi_14
+        description: 14-day relative strength index. Defined on 0-100 and clamped at source, so any violation is a bug.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 100
+
+      - name: market_cap
+        description: close_raw times shares_outstanding. Moves daily even though the share count is quarterly.
+
+      - name: earnings_yield_z
+        description: >
+          Example of the cross-sectional block. Earnings yield winsorized at
+          the 1st/99th percentile of its date, then z-scored across the
+          universe. Every feature in the model xs_features list carries a _z,
+          a _decile and a _vs_sector sibling built the same way.
+
+      - name: earnings_yield_decile
+        description: >
+          Rank of earnings yield within its date, 1 = lowest, 10 = highest.
+          NULL where the raw feature is NULL - null rows are excluded from the
+          bucketing rather than being swept into the bottom decile.
+
+      - name: net_margin_vs_sector
+        description: Net margin minus the median net margin of its sector on that date.
+
+  # =====================================================================
+  - name: mart_training_set
+    description: >
+      mart_features plus forward-return targets and a walk-forward fold id,
+      restricted to tradable names (close_raw >= min_price,
+      adv_21d >= min_adv_usd). The only model in the warehouse that looks into
+      the future. Targets are NULL at the right edge by construction and must
+      stay null - tests/assert_targets_null_at_edge.sql enforces it.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, date]
+
+    columns:
+      - name: symbol
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_companies')
+                field: symbol
+
+      - name: date
+        data_tests:
+          - not_null
+
+      - name: fwd_ret_5d
+        description: >
+          Forward 5-bar log return, ln(close 5 bars ahead / close today). NULL
+          on the last five traded dates and on a symbol final bars. Never zero
+          there - a zero forward return is a real observation.
+
+      - name: fwd_ret_21d
+        description: Forward 21-bar log return. NULL on the last 21 traded dates.
+
+      - name: fwd_ret_5d_excess
+        description: >
+          fwd_ret_5d minus the mean forward return of the tradable universe
+          that day. Strips the market move, which no cross-sectional model can
+          predict and every symbol shares.
+
+      - name: fwd_ret_5d_xs_decile
+        description: >
+          Cross-sectional decile of fwd_ret_5d within its date, 1 = worst.
+          The label for ranking models.
+
+      - name: label_up_5d
+        description: 1 when fwd_ret_5d is positive, 0 when not, NULL when the target is unknown.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+                quote: false
+
+      - name: fold_id
+        description: >
+          WALK-FORWARD fold, one per calendar month, monotone in time. NEVER
+          random - neighbouring days share overlapping feature windows and
+          overlapping forward returns, so a random split leaks the answer into
+          training. Train on fold_id <= k, validate on fold_id = k + 1.
+        data_tests:
+          - not_null
+
+      - name: close_raw
+        description: Unadjusted close. Screened against the min_price var.
+        data_tests:
+          - not_null
+
+      - name: adv_21d
+        description: 21-day average dollar volume. Screened against the min_adv_usd var.
+        data_tests:
+          - not_null
+
+  # =====================================================================
+  - name: mart_feature_summary
+    description: >
+      mart_training_set narrowed to the features named in
+      seeds/selected_features.csv, plus keys, targets and fold_id. Regenerated
+      by `dbt seed && dbt run --select mart_feature_summary` after a SHAP run -
+      that is the whole feature-selection loop. Falls back to the full training
+      set when the seed carries only its placeholder row, so it compiles and
+      builds before any model has been trained.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, date]
+
+    columns:
+      - name: symbol
+        data_tests:
+          - not_null
+      - name: date
+        data_tests:
+          - not_null
+      - name: fold_id
+        description: Carried unconditionally - a feature list without its split assignment is not trainable.
+        data_tests:
+          - not_null
+
+  # =====================================================================
+  - name: mart_stock_screener
+    description: >
+      One row per symbol at its own latest bar. Headline price, fundamentals,
+      ratios, technicals and sector - the flat, human-readable mart the FastMCP
+      server will query. Column contract in docs/data-dictionary.md, with the
+      two deviations documented in the model header (no news sentiment, and the
+      21/63/252 risk windows in place of the 30/90 the dictionary names).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol]
+
+    columns:
+      - name: symbol
+        description: Ticker. Exactly one row per symbol.
+        data_tests:
+          - not_null
+          - unique
+          - relationships:
+              arguments:
+                to: ref('stg_companies')
+                field: symbol
+
+      - name: company_name
+        description: Company name from the S&P 500 seed.
+        data_tests:
+          - not_null
+
+      - name: price_date
+        description: >
+          Date of the latest bar for this symbol - not necessarily the latest
+          date in the warehouse. States plainly how stale the row is.
+        data_tests:
+          - not_null
+
+      - name: latest_price
+        description: Unadjusted close on price_date.
+        data_tests:
+          - not_null
+
+      - name: period_end
+        description: Fiscal period end of the attached filing. NULL if the symbol has no visible filing yet.
+
+      - name: rsi_14
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 100
