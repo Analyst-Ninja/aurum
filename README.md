@@ -103,6 +103,10 @@ Design phase complete (spec v2.0, 2026-07-12). Implementation is mid-Phase 0 —
 - `src/transformation/aurum_dwh/` — the **full bronze / silver / gold medallion**, built and tested: 8 `br_*` mirrors, 3 `stg_*` models, 5 `int_*` feature models, 4 `mart_*` marts, 3 seeds and 237 dbt tests. `gold.mart_features` is ~2.9M rows across 503 symbols from 2000 to today, with point-in-time fundamentals, ~120 raw features and a per-date cross-sectional block (`_z` / `_decile` / `_vs_sector` on 36 of them); `gold.mart_training_set` adds forward-return targets and walk-forward folds. It runs against local **Postgres**, not Snowflake. See the [Warehouse guide](docs/warehouse/dwh-medallion.md).
 - CI: ruff lint + SonarCloud quality gate on `main`, `develop`, `epic/*`, and PRs.
 
+**Designed, in flight**
+
+- **Phase 6 — modelling.** `docs/modeling/` specifies preprocessing, purged walk-forward training, SHAP feature selection, backtesting and the retraining policy: 5-day horizon, regression on `fwd_ret_5d_excess` (market-neutral excess return), LightGBM, flat-file model registry, containerized training. Tracked as epic [#50](https://github.com/Analyst-Ninja/aurum/issues/50). No code under `src/modeling/` yet — start at the [Modelling design](docs/modeling/modeling-design.md).
+
 **Not built yet**
 
 - Kafka producers/consumers, the realtime websocket feed, and news ingestion — so no sentiment exists anywhere in the warehouse.

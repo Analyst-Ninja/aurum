@@ -7,12 +7,16 @@ Grouped by the thing being documented. Two rules make the split predictable:
 - **`warehouse/` documents the contract; `warehouse/rationale/` documents the reasoning.** Reach for
   the first to *use* the warehouse, the second to *change* it.
 
+One exception to the first rule: **`modeling/` is design-stage**, describing Phase 6 as it is being
+built rather than as it runs. Each doc there opens with a status blockquote saying so.
+
 ```
 docs/
 ├── architecture/     the target system (spec v2.0) — mostly not built
 ├── ingestion/        src/ingestion, as built
 ├── warehouse/        src/transformation/aurum_dwh, as built
 │   └── rationale/    why each model and seed is shaped the way it is
+├── modeling/         src/modeling — design, in flight (Phase 6)
 ├── operations/       CI/CD and infrastructure
 └── design-specs/     dated design records, kept for history
 ```
@@ -26,6 +30,9 @@ docs/
 | query the warehouse | [`warehouse/data-dictionary.md`](warehouse/data-dictionary.md) |
 | add a feature, or change a model | [`warehouse/dwh-medallion.md`](warehouse/dwh-medallion.md) |
 | add a new data source | [`ingestion/datasource-framework.md`](ingestion/datasource-framework.md) |
+| train a model, or understand what we predict | [`modeling/modeling-design.md`](modeling/modeling-design.md) |
+| change the feature set | [`modeling/feature-selection-shap.md`](modeling/feature-selection-shap.md) |
+| backtest a signal | [`modeling/backtesting.md`](modeling/backtesting.md) |
 
 ## architecture/
 
@@ -58,6 +65,19 @@ docs/
 | [`gold-models-rationale.md`](warehouse/rationale/gold-models-rationale.md) | `mart_*`: the cross-sectional transform, the target/leakage contract, walk-forward folds |
 | [`concept-map-rationale.md`](warehouse/rationale/concept-map-rationale.md) | Why each XBRL concept is mapped, dropped or ranked in `seeds/concept_map.csv`, with measured coverage |
 | [`selected-features-seed.md`](warehouse/rationale/selected-features-seed.md) | The SHAP selection loop, and why `seeds/selected_features.csv` must exist before anything is trained |
+
+## modeling/ — design, in flight
+
+Phase 6 ([#50](https://github.com/Analyst-Ninja/aurum/issues/50)). `src/modeling/` is an empty
+placeholder; these are the specification the code will be reviewed against.
+
+| Doc | Content |
+|---|---|
+| [`modeling-design.md`](modeling/modeling-design.md) | **Start here.** What we predict and why (`fwd_ret_5d_excess`), why LightGBM, the feature space, the metrics, the known limitations |
+| [`preprocessing-contract.md`](modeling/preprocessing-contract.md) | Row filters, the three column deny-lists, NaN policy, and the train/inference symmetry contract |
+| [`training-and-retraining.md`](modeling/training-and-retraining.md) | Purged walk-forward folds, hyperparameters, the flat-file registry, retraining triggers, promotion, the container |
+| [`feature-selection-shap.md`](modeling/feature-selection-shap.md) | The SHAP loop, producer side — what writes `seeds/selected_features.csv` |
+| [`backtesting.md`](modeling/backtesting.md) | Portfolio construction, cost sweep, factor attribution, the three reality checks |
 
 ## operations/
 

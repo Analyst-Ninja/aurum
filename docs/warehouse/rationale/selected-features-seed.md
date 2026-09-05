@@ -2,7 +2,20 @@
 
 > Companion to `src/transformation/aurum_dwh/seeds/selected_features.csv`.
 > Created 2026-09-03, currently holding a single placeholder row.
-> Real content arrives in Phase 4 (#36), once a model exists to produce it.
+> Real content arrives in **Phase 6** ([#55](https://github.com/Analyst-Ninja/aurum/issues/55)),
+> once a model exists to produce it.
+>
+> **This document is the consumer side** — the seed's schema, why it is a seed rather than a table,
+> and how `mart_feature_summary` reads it. The **producer** — what computes the SHAP ranking and
+> writes this file — is [`../../modeling/feature-selection-shap.md`](../../modeling/feature-selection-shap.md).
+>
+> Two corrections since this was written. The phase was renumbered: the SHAP loop belongs to
+> **Phase 6 (modelling)**, not Phase 4 (#36), which shipped the GOLD marts that the loop reads.
+> And §2 below describes the compile-time `run_query` mechanism as designed; the **shipped**
+> `mart_feature_summary` uses `load_relation` plus an intersection against `mart_training_set`'s
+> real columns, with a fallback to the full panel when nothing matches — see
+> [`gold-models-rationale.md`](gold-models-rationale.md) §6 for the as-built version. The failure
+> modes described in §2 are unchanged and still apply.
 
 ---
 
