@@ -290,6 +290,15 @@ Field-level detail: `docs/warehouse/data-dictionary.md`.
 - **Dependencies:** Snowflake reader, Python ML stack (scikit-learn/XGBoost/LightGBM + `shap`).
 - **Validation:** walk-forward (time-series) splits only — no random shuffles; leakage guard: features at time *t* must use data filed/observed ≤ *t* (respect EDGAR `filed_date`, not `period_end`).
 
+> **Detailed design, 2026-09-05 — [`docs/modeling/`](../modeling/modeling-design.md).** Phase 6 is
+> specified in five documents and tracked as epic [#50](https://github.com/Analyst-Ninja/aurum/issues/50).
+> Three points above are refined there: the training frame is `GOLD.mart_training_set`, not
+> `mart_features` (which carries no targets, by construction); the artifact is `model.txt`
+> (LightGBM native) rather than `model.pkl`, which does not survive library-version drift; and
+> walk-forward splits alone are **not sufficient** — the five-day horizon on daily bars overlaps
+> labels across the fold boundary, so purge and embargo are required. Backtesting, cost modelling
+> and the retraining policy are additions to this section, not refinements of it.
+
 ### 3.8 Realtime Inference Module
 
 - **Purpose:** Consume live `market.ohlcv.1m` + `news.sentiment` streams, maintain rolling in-memory feature state per ticker, score with the trained model, emit decisions.
@@ -345,6 +354,7 @@ aurum/
 │   ├── consumers/               # kafka → postgres writers
 │   ├── inference/               # realtime inference module
 │   ├── ml/                      # training, SHAP selection, registry
+│                                #   NOTE: the repo uses src/modeling/, not src/ml/. The repo wins.
 │   └── mcp_server/              # FastMCP NL→SQL server
 ├── dbt/                         # dbt-snowflake project (raw sources, silver, gold)
 ├── airflow/dags/                # load + quality + retrain DAGs
@@ -382,7 +392,7 @@ aurum/
 
 1. **News source** — which API (free tier)? Candidates: Finnhub, NewsAPI, GDELT, RSS aggregation. Decision needed before Phase 5.
 2. **Yahoo websocket reliability** — unofficial; confirm minute-bar coverage for 500 tickers on one connection, else shard producers.
-3. **Prediction target** — forward return horizon (1d? 5d?) and classification vs regression. Decide at Phase 6 start.
+3. ~~**Prediction target** — forward return horizon (1d? 5d?) and classification vs regression. Decide at Phase 6 start.~~ **Resolved 2026-09-05:** 5 trading days, **regression on `fwd_ret_5d_excess`** (log return minus the cross-sectional mean that date). Classification (`label_up_5d`) and ranking (`fwd_ret_5d_xs_decile`) are trained as secondary heads for comparison. Rationale — including the measured SHAP collapse onto market-regime columns when the raw return is used — in [`docs/modeling/modeling-design.md`](../modeling/modeling-design.md) §2.
 4. **Postgres pruning policy** — exact retention after Snowflake load confirmation.
 5. **Model registry** — flat files now; adopt MLflow when retraining becomes regular.
 
