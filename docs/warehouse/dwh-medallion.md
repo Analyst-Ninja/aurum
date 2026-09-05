@@ -687,7 +687,7 @@ the full-vs-incremental checksum in [Commands and verification](#commands-and-ve
 **Adding a new XBRL concept** instead of a feature: add the row to `seeds/concept_map.csv` (with
 `statement`, `sign` and `priority`), add the canonical name to `pivot_columns` in
 `int_fundamentals_wide.sql`, and to `ttm_columns` if it is a flow rather than a balance. See
-`docs/concept-map-rationale.md` for why each concept is mapped, dropped or ranked where it is.
+`docs/warehouse/rationale/concept-map-rationale.md` for why each concept is mapped, dropped or ranked where it is.
 
 ---
 
@@ -725,7 +725,7 @@ placeholder row, and three guards keep the unseeded/stale cases working:
 Keys, targets and `fold_id` are always carried whether the seed names them or not: a feature list
 without its label is not trainable.
 
-Full detail: `docs/selected-features-seed.md`.
+Full detail: `docs/warehouse/rationale/selected-features-seed.md`.
 
 ---
 
@@ -784,7 +784,7 @@ than it deserves.
 | 4 | **RSI and ATR use simple 14-bar means**, not Wilder's recursive smoothing | Postgres has no window equivalent for Wilder's smoother | Tracks the original closely; matches what most screeners report | none planned |
 | 5 | **MACD is built on SMAs, not EMAs** | no window EMA in Postgres; a recursive CTE over 2.9M rows is not viable | A documented deviation from 12/26/9. The column is a relative trend measure either way and is z-scored before any model sees it | none planned |
 | 6 | **`obv_flow_21d` replaces the conventional OBV slope** | cumulative sums are not reproducible across an incremental slice | none — the bounded form carries the same signal *and* has a meaningful scale | n/a, this is the fix |
-| 7 | **53% of `stg_financials_long` rows have no `canonical_name`** | the seed maps 84 concepts; issuers tag thousands | Unmapped rows are kept with a NULL canonical name so coverage stays measurable. Coverage by *value* on the mapped line items is what matters — see `docs/concept-map-rationale.md` | extend `seeds/concept_map.csv` |
+| 7 | **53% of `stg_financials_long` rows have no `canonical_name`** | the seed maps 84 concepts; issuers tag thousands | Unmapped rows are kept with a NULL canonical name so coverage stays measurable. Coverage by *value* on the mapped line items is what matters — see `docs/warehouse/rationale/concept-map-rationale.md` | extend `seeds/concept_map.csv` |
 | 8 | **Two range tests run at threshold severity** | `net_margin < -10` on 14,339 rows (0.49%) — a quarter where revenue collapsed but losses did not; `abs(price_to_earnings) > 1000` on 8,623 rows (0.29%) — `eps_ttm` within a rounding error of zero | Thresholds are ~2× the measured counts, so a unit error, sign flip or infinity still fails loudly while a normal build stays green | none; this is why `earnings_yield` and not `price_to_earnings` is what gets ranked |
 | 9 | **`ohlcv_1min` is mirrored but unused**; no news/sentiment anywhere | out of scope for the daily panel; news is not ingested | `mart_stock_screener` has no `sentiment_7d` / `news_count_7d`, deliberately — a column of nulls would suggest otherwise | later phases |
 
@@ -794,11 +794,11 @@ than it deserves.
 
 | Doc | Content |
 |---|---|
-| `docs/data-dictionary.md` | field-by-field reference for landing, bronze, silver and gold |
-| `docs/bronze-models-rationale.md` | bronze as built, in detail |
-| `docs/silver-staging-models-rationale.md` | `stg_*` as built |
-| `docs/silver-intermediate-models-rationale.md` | `int_*` as built; the long form of the lookback/warm-up rules and the full-vs-incremental recipe |
-| `docs/gold-models-rationale.md` | `mart_*` as built; the long form of the cross-sectional and target contracts |
-| `docs/concept-map-rationale.md` | why each XBRL concept is mapped, dropped or ranked, with measured coverage |
-| `docs/selected-features-seed.md` | the SHAP loop and the seed contract |
-| `docs/TECHNICAL_SPEC.md` | the target v2.0 system — Kafka, Snowflake, MCP. Not what this warehouse is |
+| `docs/warehouse/data-dictionary.md` | field-by-field reference for landing, bronze, silver and gold |
+| `docs/warehouse/rationale/bronze-models-rationale.md` | bronze as built, in detail |
+| `docs/warehouse/rationale/silver-staging-models-rationale.md` | `stg_*` as built |
+| `docs/warehouse/rationale/silver-intermediate-models-rationale.md` | `int_*` as built; the long form of the lookback/warm-up rules and the full-vs-incremental recipe |
+| `docs/warehouse/rationale/gold-models-rationale.md` | `mart_*` as built; the long form of the cross-sectional and target contracts |
+| `docs/warehouse/rationale/concept-map-rationale.md` | why each XBRL concept is mapped, dropped or ranked, with measured coverage |
+| `docs/warehouse/rationale/selected-features-seed.md` | the SHAP loop and the seed contract |
+| `docs/architecture/TECHNICAL_SPEC.md` | the target v2.0 system — Kafka, Snowflake, MCP. Not what this warehouse is |

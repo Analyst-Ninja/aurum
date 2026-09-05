@@ -4,7 +4,7 @@
 > `gold`, all in the local Postgres database `aurum`.
 >
 > This file documents what exists in code. The Kafka/Snowflake pipeline in
-> `docs/TECHNICAL_SPEC.md` is the target design and is **not** what these tables are.
+> `docs/architecture/TECHNICAL_SPEC.md` is the target design and is **not** what these tables are.
 > For why each model is shaped the way it is, see [`dwh-medallion.md`](dwh-medallion.md).
 >
 > Sources: Yahoo Finance via `yfinance` (OHLCV) and SEC EDGAR XBRL company facts (statements),
@@ -131,7 +131,7 @@ Maps raw XBRL concepts to canonical names. The single place issuer tag variation
 | `sign` | `1`, or `-1` for items EDGAR reports as a positive magnitude but which are cash outflows (capex, buybacks, dividends paid) |
 | `priority` | `1` = most trusted. Resolves several concepts competing for one canonical name in a period |
 
-Rationale and measured coverage: `docs/concept-map-rationale.md`.
+Rationale and measured coverage: `docs/warehouse/rationale/concept-map-rationale.md`.
 
 ### `selected_features.csv` — 1 row (placeholder)
 
@@ -146,7 +146,7 @@ Written by the SHAP loop in `src/modeling/`; ships with one placeholder row so
 | `selected` | Boolean; only `true` rows are used |
 | `model_version` | Which training run produced the row |
 
-Contract detail: `docs/selected-features-seed.md`.
+Contract detail: `docs/warehouse/rationale/selected-features-seed.md`.
 
 ---
 
@@ -464,7 +464,7 @@ guess. Full discussion:
 | No `filed_date` | The PIT guard is a lag approximation; the amendment rule is *latest ingest wins* |
 | `fiscal_period_end` is a **calendar** quarter end | Correct for the ~75% of the index on a December fiscal year; off by up to a quarter otherwise. It also produces future-dated period ends (max in the warehouse: 2027-06-30) |
 | One canonical name, several competing concepts | `concept_map.priority` resolves it; `Revenues` and `RevenueFromContractWithCustomerExcludingAssessedTax` both map to `revenue` |
-| 53% of `stg_financials_long` rows have a NULL `canonical_name` | Expected — unmapped concepts are kept so coverage stays measurable. Coverage by *value* is what matters; see `docs/concept-map-rationale.md` |
+| 53% of `stg_financials_long` rows have a NULL `canonical_name` | Expected — unmapped concepts are kept so coverage stays measurable. Coverage by *value* is what matters; see `docs/warehouse/rationale/concept-map-rationale.md` |
 | `VALUE` is raw dollars | Do not rescale on ingest; format at presentation |
 | `capex`, `buybacks`, `dividends_paid` are **negative** after `canonical_sign` | `free_cash_flow = ocf + capex` is an addition. Getting it backwards doubles the capex charge |
 | Adjusted vs raw price | Every technical uses `adj_close`. Every valuation ratio uses `close_raw = adj_close / adj_factor`, because share counts and EPS are as-reported. Mixing them understates historical market caps |
@@ -485,5 +485,5 @@ guess. Full discussion:
 | `https://data.sec.gov/submissions/CIK{cik}.json` | full filing history for one company |
 | `https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json` | all facts ever reported — the main EDGAR source |
 | `https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/us-gaap/{concept}.json` | one metric, one company (lighter) |
-| `https://www.sec.gov/Archives/edgar/daily-index/{Y}/QTR{N}/master.{YYYYMMDD}.idx` | daily new-filings index — the incremental trigger (`docs/edgar-incremental-ingestion.md`) |
+| `https://www.sec.gov/Archives/edgar/daily-index/{Y}/QTR{N}/master.{YYYYMMDD}.idx` | daily new-filings index — the incremental trigger (`docs/ingestion/edgar-incremental-ingestion.md`) |
 | Wikipedia *List of S&P 500 companies* | ticker universe, sector and CIK — the `company_meta` seed |

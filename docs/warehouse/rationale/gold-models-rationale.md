@@ -8,7 +8,7 @@ Companion docs: [`bronze-models-rationale.md`](bronze-models-rationale.md),
 [`silver-intermediate-models-rationale.md`](silver-intermediate-models-rationale.md).
 
 Implements [GH-36](https://github.com/Analyst-Ninja/aurum/issues/36). The plan it
-was built from is folded into [`dwh-medallion.md`](dwh-medallion.md).
+was built from is folded into [`dwh-medallion.md`](../dwh-medallion.md).
 
 ---
 
@@ -413,7 +413,7 @@ this cheap relative to its sector"* without recomputing a percentile at query
 time.
 
 **Two documented deviations from the column contract in
-[`data-dictionary.md`](data-dictionary.md)**, both because that table describes
+[`data-dictionary.md`](../data-dictionary.md)**, both because that table describes
 the target v2 system rather than what is built:
 
 1. `ma_30d` / `ma_90d` / `vol_30d` / `sharpe_30d` do not exist. SILVER builds

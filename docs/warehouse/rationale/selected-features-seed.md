@@ -8,7 +8,7 @@
 
 ## 1. What this seed is for
 
-`docs/TECHNICAL_SPEC.md` §3.7 describes a feedback loop: train a model on GOLD features, compute SHAP values, prune the low-importance ones, and materialise the surviving set as `mart_feature_summary` — the narrowed view used for retraining.
+`docs/architecture/TECHNICAL_SPEC.md` §3.7 describes a feedback loop: train a model on GOLD features, compute SHAP values, prune the low-importance ones, and materialise the surviving set as `mart_feature_summary` — the narrowed view used for retraining.
 
 This seed **is** that loop's state. It carries the SHAP ranking from the last training run, and `mart_feature_summary` builds itself from whatever it contains.
 
@@ -101,7 +101,7 @@ ret_21d,1,0.0,true,placeholder
 
 ### Why `selected` and `model_version` were added
 
-The approved plan (now folded into `docs/dwh-medallion.md`) originally specified `feature_name,rank,mean_abs_shap`. Both additions close real gaps.
+The approved plan (now folded into `docs/warehouse/dwh-medallion.md`) originally specified `feature_name,rank,mean_abs_shap`. Both additions close real gaps.
 
 **`selected` — because rank alone has no cutoff.** If the SHAP loop writes all ~90 ranked features, the mart selects all 90, which makes it identical to `mart_training_set` and therefore pointless. Encoding the cutoff by *truncating the file* would work but throws away the ranking of everything below the line — exactly the data you need to decide whether the cutoff was right. Keeping the full ranking with an explicit flag lets you retune the threshold without rerunning SHAP.
 
@@ -179,6 +179,6 @@ That last one is worth a guard rather than a convention. `tests/assert_no_target
 
 ## 8. References
 
-- `docs/TECHNICAL_SPEC.md` §3.7 — modeling, SHAP selection, walk-forward validation
-- `docs/dwh-medallion.md` — the warehouse as built; `mart_feature_summary` and the SHAP loop
+- `docs/architecture/TECHNICAL_SPEC.md` §3.7 — modeling, SHAP selection, walk-forward validation
+- `docs/warehouse/dwh-medallion.md` — the warehouse as built; `mart_feature_summary` and the SHAP loop
 - Issue #36 — GOLD marts, where the real ranking gets produced

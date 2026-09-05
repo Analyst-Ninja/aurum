@@ -18,7 +18,7 @@ DB already holds, and symbols already up to date cost **zero** API calls.
 
 This aligns with the project invariant "incremental everywhere — never re-pull
 history" and mirrors the EDGAR watermark pattern
-(`docs/edgar-incremental-ingestion.md`).
+(`docs/ingestion/edgar-incremental-ingestion.md`).
 
 ## Decisions (locked)
 

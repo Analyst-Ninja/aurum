@@ -41,4 +41,4 @@ jobs:
 
   # terraform plan/apply run LOCALLY by design:
   # - kafka/postgres providers target compose endpoints on the operator machine
-  # - tfstate is local and gitignored (see docs/infra-as-code.md §5)
+  # - tfstate is local and gitignored (see docs/operations/infra-as-code.md §5)

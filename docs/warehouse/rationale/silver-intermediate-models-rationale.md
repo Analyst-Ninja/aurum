@@ -7,7 +7,7 @@ Companion docs: [`bronze-models-rationale.md`](bronze-models-rationale.md),
 [`silver-staging-models-rationale.md`](silver-staging-models-rationale.md).
 
 Implements [GH-35](https://github.com/Analyst-Ninja/aurum/issues/35). The plan it
-was built from is folded into [`dwh-medallion.md`](dwh-medallion.md).
+was built from is folded into [`dwh-medallion.md`](../dwh-medallion.md).
 
 ---
 
