@@ -2,7 +2,7 @@
     The universe aggregate. Grain: one row per (date).
 
     Two jobs:
-      1. the beta denominator - int_technicals_daily regresses each symbol's
+      1. the beta denominator - int_technicals_daily regresses each symbols
          daily log return on market_log_ret, so this model must be built first
          and joined BEFORE the 252-day window, not after.
       2. the regime features - market return, market volatility and market
@@ -93,7 +93,7 @@ by_date as (
 
         {#
             Equal-weight mean of member returns. avg() skips NULLs, which is
-            what should happen on each symbol's first bar and on a symbol that
+            what should happen on each symbol first bar and on a symbol that
             has not listed yet - they contribute nothing rather than a zero.
         #}
         avg(log_ret)                                       as market_log_ret,

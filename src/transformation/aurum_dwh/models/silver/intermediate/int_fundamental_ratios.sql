@@ -153,7 +153,7 @@ final as (
             Point-in-time equity and assets against twelve months of earnings.
             The textbook version uses the average balance over the year; that
             needs a fifth balance-sheet lag for a second-order correction and
-            only buys extra NULLs at the start of each symbol's history.
+            only buys extra NULLs at the start of each symbol history.
         #}
         w.net_income_ttm       / nullif(w.total_equity, 0)     as roe,
         w.net_income_ttm       / nullif(w.total_assets, 0)     as roa,
@@ -206,7 +206,7 @@ final as (
         -- ---------------------------------------------------------------
 
         {#
-            Sloan's accrual anomaly: the wedge between reported earnings and the
+            Sloan accrual anomaly: the wedge between reported earnings and the
             cash that actually arrived, scaled by assets. Large positive
             accruals predict underperformance.
         #}

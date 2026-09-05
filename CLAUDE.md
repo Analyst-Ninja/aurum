@@ -9,7 +9,7 @@ AURUM is mid-Phase-0. The **design** (`docs/TECHNICAL_SPEC.md`, spec v2.0) descr
 What actually exists and runs today:
 
 - `src/ingestion/` — a working config-driven ingestion framework (Yahoo OHLCV + EDGAR financial statements → **Postgres directly**, no Kafka in the code path yet).
-- `src/transformation/aurum_dwh/` — a dbt project, still on the `dbt init` example models, pointed at **Postgres** (not Snowflake).
+- `src/transformation/aurum_dwh/` — a dbt project pointed at **Postgres** (not Snowflake), with the medallion **bronze** and **silver** layers built and tested: 8 `br_*` mirrors, 3 `stg_*` models, 5 `int_*` feature models, 3 seeds, 222 passing tests. `models/gold/` is still empty. The `dbt init` example models are gone.
 - `src/feed/`, `src/inference/`, `src/mcp/`, `src/modeling/`, `airflow/`, `infra/` — empty `__init__.py` placeholders. `main.py` is empty.
 - `tests/` exists but holds no tests; the pytest step in CI is commented out.
 
@@ -93,7 +93,7 @@ Invariants to preserve:
 ## Conventions & gotchas
 
 - **SEC EDGAR / Wikipedia** need an honest `User-Agent` (403 otherwise) and EDGAR is capped at 10 req/s. Get it from `src.utils.env.get_sec_user_agent()` (reads `SEC_USER_AGENT`, raises if unset) — don't hardcode one. `src/utils/env.load_env()` is the single `.env` loader; never `load_dotenv` an absolute path.
-- The dbt profile `aurum_dwh` (`~/.dbt/profiles.yml`) targets local **Postgres** `aurum`, schema `bronze`. A separate `aurum` profile points at Snowflake. Models under `models/example/` are dbt scaffolding, not real models.
+- The dbt profile `aurum_dwh` (`~/.dbt/profiles.yml`) targets local **Postgres** `aurum`, schema `bronze`. A separate `aurum` profile points at Snowflake. Schemas are set per layer by `generate_schema_name` (`macros/`), which is overridden so `bronze`/`silver`/`gold` are used verbatim rather than prefixed with the profile schema.
 - **SonarCloud** gates every push/PR (`sonar-project.properties`, org `analyst-ninja`); `docs/**` and `nbs/**` excluded.
 - CI (`.github/workflows/ci.yml`) runs on `main`, `develop`, `epic/*`, and PRs — **lint + Sonar only**, tests are commented out. `terraform.yml` validates `infra/terraform/**`, which doesn't exist yet; plan/apply is deliberately local-only (`docs/infra-as-code.md` §5).
 - GitHub Actions are pinned by full commit SHA — keep that when editing workflows.
@@ -101,4 +101,4 @@ Invariants to preserve:
 
 ## Documentation map
 
-`docs/TECHNICAL_SPEC.md` (spec, build phases, target layout) · `docs/data-dictionary.md` (fields per layer) · `docs/dwh-medallion-plan.md` (approved but **unbuilt** plan for the dbt bronze/silver/gold layers + ML feature set) · `docs/concept-map-rationale.md` (why each XBRL concept is mapped/dropped/ranked in `seeds/concept_map.csv`, with measured coverage) · `docs/selected-features-seed.md` (the SHAP feature-selection loop; why `seeds/selected_features.csv` must exist before any model is trained) · `docs/edgar-incremental-ingestion.md` · `docs/infra-as-code.md` (Terraform for Snowflake/Kafka/Postgres) · `docs/cicd.md` · `docs/datasource-framework.md` (ingestion framework as built: registry/factory/feed flow, config reference, rough edges) · `repo_structure.md` (aspirational tree — does not match `src/`).
+`docs/TECHNICAL_SPEC.md` (spec, build phases, target layout) · `docs/data-dictionary.md` (fields per layer) · `docs/dwh-medallion-plan.md` (approved plan for the dbt bronze/silver/gold layers + ML feature set; bronze and silver are now **built**, gold is not) · `docs/bronze-models-rationale.md` + `docs/silver-staging-models-rationale.md` + `docs/silver-intermediate-models-rationale.md` (the three layers **as built** — why each model is shaped the way it is, finance terms explained for non-finance readers; the intermediate doc carries the incremental-lookback/warm-up rules and the full-vs-incremental verification recipe) · `docs/concept-map-rationale.md` (why each XBRL concept is mapped/dropped/ranked in `seeds/concept_map.csv`, with measured coverage) · `docs/selected-features-seed.md` (the SHAP feature-selection loop; why `seeds/selected_features.csv` must exist before any model is trained) · `docs/edgar-incremental-ingestion.md` · `docs/infra-as-code.md` (Terraform for Snowflake/Kafka/Postgres) · `docs/cicd.md` · `docs/datasource-framework.md` (ingestion framework as built: registry/factory/feed flow, config reference, rough edges) · `repo_structure.md` (aspirational tree — does not match `src/`).

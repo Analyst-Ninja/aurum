@@ -96,8 +96,8 @@ validity as (
     select
         *,
         {#
-            The next filing visibility date closes this one's window. NULL on
-            the latest row means "still current", which is what keeps today's
+            The next filing visibility date closes this one window. NULL on
+            the latest row means "still current", which is what keeps today
             bars attached to the most recent filing.
         #}
         lead(available_from) over (
@@ -119,7 +119,7 @@ joined as (
         b.avg_volume_21d,
 
         {#
-            LEFT join: a symbol's early history predates its first filing's
+            LEFT join: a symbol early history predates its first filing
             available_from, and those bars must survive with NULL fundamentals
             rather than vanish. Dropping them would silently truncate the panel.
         #}
@@ -229,7 +229,7 @@ final as (
 
     {% if is_incremental() %}
     {#
-        Warm-up guard, same contract as int_technicals_daily. This model's only
+        Warm-up guard, same contract as int_technicals_daily. This model only
         rolling feature is turnover_21d, so its degraded region is just the
         first 20 bars of the read frame rather than the first 251 - but the
         principle is identical: never re-emit a row that was computed against a

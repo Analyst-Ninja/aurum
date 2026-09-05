@@ -21,7 +21,7 @@
          WRONG; they must not overwrite the correct ones already in the target.
          See the guard on the final select.
       3. delete+insert over that tail rather than appending, so a row computed
-         near a previous slice's edge is replaced rather than kept.
+         near a previous slice edge is replaced rather than kept.
 
     Rule for anyone adding a feature here, stated the way that survives contact
     with reality:
@@ -149,12 +149,12 @@ returns as (
             / nullif(lag(adj_close, 252) over w_symbol, 0) - 1   as mom_12_1,
 
         {#
-            Overnight gap: where today opened relative to yesterday's close.
+            Overnight gap: where today opened relative to yesterday close.
         #}
         adj_open / nullif(lag(adj_close) over w_symbol, 0) - 1   as gap_overnight,
 
         {#
-            Wilder's true range. greatest() ignores NULLs, so the first bar of
+            Wilder true range. greatest() ignores NULLs, so the first bar of
             a symbol falls back to the plain high-low span rather than
             returning NULL.
         #}
@@ -176,7 +176,7 @@ flows as (
         *,
 
         {#
-            Signed volume: the day's share volume, positive on an up close and
+            Signed volume: the day share volume, positive on an up close and
             negative on a down close. The building block of the OBV family.
 
             Its own CTE because it reads price_diff, which is itself a window
@@ -220,8 +220,8 @@ rolling as (
         stddev_samp(log_ret) over w_252 * sqrt(252)  as vol_252d,
 
         {#
-            Parkinson's high-low estimator: sqrt(mean(ln(H/L)^2) / (4 ln 2)).
-            It uses the whole bar's range instead of two closing prints, and is
+            Parkinson high-low estimator: sqrt(mean(ln(H/L)^2) / (4 ln 2)).
+            It uses the whole bar range instead of two closing prints, and is
             roughly five times more efficient than close-to-close at the same
             sample size. Blind to overnight gaps, which is why both are kept.
         #}
@@ -239,7 +239,7 @@ rolling as (
                                                      as downside_dev_21d,
 
         {#
-            ATR on a simple 14-bar mean of true range. Wilder's original uses
+            ATR on a simple 14-bar mean of true range. Wilders original uses
             his own recursive smoother, which Postgres has no window equivalent
             for; the simple mean tracks it closely and is what most screeners
             now report. Documented here so nobody "fixes" it silently.
@@ -297,7 +297,7 @@ rolling as (
                                                      as amihud_illiq_21d,
 
         {#
-            OBV as a bounded 21-day net flow: the share of the period's volume
+            OBV as a bounded 21-day net flow: the share of the period volume
             that traded on up days rather than down days. Ranges [-1, 1];
             positive means accumulation.
 
@@ -434,7 +434,7 @@ final as (
         beta_252d,
 
         {#
-            Idiosyncratic volatility - the part of the symbol's variance the
+            Idiosyncratic volatility - the part of the symbol variance the
             market does not explain. greatest(..., 0) guards the sqrt against a
             correlation that rounds marginally past 1.
         #}
@@ -519,7 +519,7 @@ final as (
 
         Without this clause, delete+insert overwrites them with the degraded
         versions - which is exactly what happened before it was added: 500
-        symbols with a NULL ret_1d on the frame's first date, and beta_252d
+        symbols with a NULL ret_1d on the frame first date, and beta_252d
         going NULL on recent rows whose 252-day window reached back into it.
         The checksum comparison in the GH-35 acceptance criteria is what caught
         it; nothing else would have.

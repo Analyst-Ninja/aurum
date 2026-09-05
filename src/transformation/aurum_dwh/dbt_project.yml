@@ -88,7 +88,7 @@ vars:
   # refresh.
   #
   # Also, the maximum the pipeline may lapse: a gap longer than this leaves dates
-  # that no run ever writes. tests/assert_technicals_cover_all_bars.sql fails
+  # that no run ever writes. tests/assert_intermediate_covers_all_bars.sql fails
   # loudly if that happens rather than leaving a silent hole.
   window_rewrite_days: 90
 

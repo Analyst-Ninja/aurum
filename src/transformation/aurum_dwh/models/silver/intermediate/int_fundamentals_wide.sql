@@ -6,7 +6,7 @@
 
       1. resolve - stg_financials_long is long by CONCEPT, so several XBRL
                    concepts can compete for one canonical_name in a single
-                   period (e.g. Revenues and RevenueFromContract...). The seed's
+                   period (e.g. Revenues and RevenueFromContract...). The seed
                    priority column picks the winner; canonical_sign flips the
                    polarity of items EDGAR reports as positive magnitudes
                    (capex, buybacks, dividends paid) into cash-flow signing.
@@ -17,8 +17,8 @@
     MATERIALIZATION: table, not incremental, deliberately. The TTM windows look
     back three quarters and the growth lags in int_fundamental_ratios look back
     four, so an incremental slice would have to re-read roughly two years of
-    periods to stay correct. The whole model is ~30k rows off 880k long rows -
-    a full rebuild costs seconds. Incremental here would buy nothing and add
+    periods to stay correct. The whole model is ~20k rows off 880k mapped long
+    rows - a full rebuild costs about two seconds. Incremental here would buy nothing and add
     the exact silent-NULL failure mode the technicals model has to defend
     against.
 #}
@@ -111,7 +111,7 @@ resolved as (
 
     {#
         Collision resolution. Within one (symbol, period_type, period,
-        canonical_name) there may be several concepts; the seed's priority
+        canonical_name) there may be several concepts; the seeds priority
         column orders them, 1 = most trusted. abs(value) desc and concept asc
         only break ties so the pick is stable across runs rather than dependent
         on scan order.
