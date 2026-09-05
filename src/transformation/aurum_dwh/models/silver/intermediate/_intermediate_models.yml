@@ -1,0 +1,382 @@
+version: 2
+
+# NOTE on syntax: dbt 1.12 requires arguments to generic tests to be nested
+# under an `arguments:` key. Passing them at the top level still runs but emits
+# MissingArgumentsPropertyInGenericTestDeprecation.
+#
+# Range tests below are deliberately WIDE. Their job is to catch a unit error,
+# a sign flip or a division that produced an infinity - not to encode a view on
+# what a plausible margin is. A tight bound here fails the build on a real
+# outlier, which trains everyone to ignore the tests.
+
+models:
+  # =====================================================================
+  - name: int_fundamentals_wide
+    description: >
+      Long financial facts pivoted to one row per statement period, grain
+      (symbol, period_type, fiscal_period_end). Resolves concept collisions by
+      the seed's priority, applies canonical_sign so cash outflows are negative,
+      rolls flow items to trailing twelve months, and stamps every row with
+      `available_from` - the point-in-time date the filing becomes usable.
+      Materialized as a table, not incrementally: the TTM windows reach back
+      three quarters and the model is only ~20k rows.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, period_type, fiscal_period_end]
+
+    columns:
+      - name: symbol
+        description: Ticker, inherited from the landing feed.
+        data_tests:
+          - not_null
+
+      - name: period_type
+        description: quarterly (10-Q derived) or annual (10-K derived).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['quarterly', 'annual']
+
+      - name: fiscal_period_end
+        description: >
+          Last calendar day of the reporting period. Approximated from the
+          period label by stg_financials_long - accurate for December
+          fiscal-year filers, shifted by up to a quarter for the rest.
+        data_tests:
+          - not_null
+
+      - name: available_from
+        description: >
+          THE point-in-time guard. fiscal_period_end plus the lag var (60d
+          quarterly, 90d annual). Every downstream join keys on this column and
+          never on fiscal_period_end.
+        data_tests:
+          - not_null
+
+      - name: revenue
+        description: Single-period revenue, priority-resolved from the concept map.
+      - name: revenue_ttm
+        description: >
+          Trailing-twelve-month revenue. On quarterly rows, the sum of the last
+          four quarters - NULL unless all four are present and span 240-320
+          days, so a missing quarter cannot masquerade as a full year. On
+          annual rows, the annual figure itself.
+      - name: eps
+        description: Diluted EPS, falling back to basic where diluted is untagged.
+      - name: eps_ttm
+        description: Trailing-twelve-month EPS. The denominator of price_to_earnings.
+      - name: net_income_ttm
+        description: Trailing-twelve-month net income.
+      - name: operating_cash_flow_ttm
+        description: Trailing-twelve-month operating cash flow.
+      - name: capex_ttm
+        description: >
+          Trailing-twelve-month capital expenditure. NEGATIVE - the concept map
+          signs it as a cash outflow, so free cash flow adds it rather than
+          subtracting it.
+      - name: ebitda_ttm
+        description: >
+          Operating income plus D&A, rolled to twelve months. A proxy: the
+          strict definition works up from pretax income, but operating income is
+          the more reliably tagged line.
+
+      - name: shares_outstanding
+        description: >
+          Weighted-average diluted share count, falling back to basic. As
+          reported - NOT split-adjusted - which is why market_cap in
+          int_features_daily is computed against the raw close.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "shares_outstanding is not null"
+
+      - name: total_debt
+        description: >
+          Interest-bearing debt only: long-term debt plus its current portion.
+          Payables and lease liabilities are excluded on purpose.
+
+  # =====================================================================
+  - name: int_fundamental_ratios
+    description: >
+      Price-free derived fundamentals at the same grain as int_fundamentals_wide,
+      which it carries through in full. Profitability, growth, leverage and
+      quality. Every division is guarded with nullif so a vanished denominator
+      yields NULL rather than an error or an infinity. Valuation ratios are NOT
+      here - they need a price and live in int_features_daily.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, period_type, fiscal_period_end]
+
+    columns:
+      - name: gross_margin
+        description: gross_profit_ttm / revenue_ttm.
+      - name: operating_margin
+        description: operating_income_ttm / revenue_ttm.
+      - name: net_margin
+        description: net_income_ttm / revenue_ttm.
+      - name: roe
+        description: net_income_ttm / point-in-time total equity.
+      - name: roa
+        description: net_income_ttm / point-in-time total assets.
+      - name: roic
+        description: >
+          NOPAT / invested capital, where the effective tax rate is derived per
+          period and clamped to [0, 0.60] with a 21% statutory fallback, and
+          invested capital is equity + total debt - cash.
+
+      - name: revenue_growth_yoy
+        description: >
+          Revenue against the same quarter a year earlier (four rows back for
+          quarterly, one for annual), and NULL unless that row really sits
+          300-430 days back. Denominator is abs() so a recovery from a negative
+          base does not report as a collapse.
+
+      - name: current_ratio
+        description: current_assets / current_liabilities.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "current_ratio is not null"
+
+      - name: accruals
+        description: >
+          (net_income_ttm - operating_cash_flow_ttm) / total_assets. Sloan's
+          accrual anomaly - the wedge between reported earnings and cash.
+      - name: free_cash_flow_ttm
+        description: >
+          operating_cash_flow_ttm + capex_ttm. An addition, because capex is
+          signed negative.
+
+  # =====================================================================
+  - name: int_market_daily
+    description: >
+      Equal-weight universe aggregate, one row per date. Supplies the beta
+      denominator for int_technicals_daily and the regime features (market
+      return, market volatility, breadth, cross-sectional dispersion). Equal
+      weight rather than cap weight: cap weights would need point-in-time share
+      counts, dragging the look-ahead problem into a model that has none.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [date]
+
+    columns:
+      - name: date
+        data_tests:
+          - not_null
+          - unique
+
+      - name: market_log_ret
+        description: >
+          Equal-weight mean daily log return across the universe. The regressor
+          behind beta_252d, which is why this model must build before
+          int_technicals_daily.
+
+      - name: market_breadth
+        description: >
+          Share of the universe closing above its own 50-day moving average.
+          Symbols whose average is still warming up are excluded, so early
+          history does not report a spuriously extreme value.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+                row_condition: "market_breadth is not null"
+
+      - name: market_vol_21d
+        description: Annualized 21-day stdev of the equal-weight market log return.
+
+      - name: universe_size
+        description: Symbols with a bar on that date. A coverage diagnostic.
+
+  # =====================================================================
+  - name: int_technicals_daily
+    description: >
+      Price-derived features, grain (symbol, date). Momentum, trend,
+      volatility, risk, liquidity and oscillators, all as window functions over
+      stg_ohlcv_daily partitioned by symbol. Incremental with a
+      window_lookback_days read and delete+insert over that whole range - the
+      longest feature window is 252 trading days and a shorter lookback would
+      silently return NULLs rather than fail. Two documented deviations from
+      convention, both forced by Postgres having no window EMA: MACD is built
+      on simple moving averages, and RSI/ATR use simple means rather than
+      Wilder's recursive smoothing.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, date]
+
+    columns:
+      - name: symbol
+        data_tests:
+          - not_null
+      - name: date
+        data_tests:
+          - not_null
+
+      - name: mom_12_1
+        description: >
+          252-day return excluding the most recent 21 days. The canonical
+          momentum factor - the skip removes short-term reversal, which is a
+          separate and opposite effect.
+
+      - name: vol_252d
+        description: Annualized stdev of daily log returns over 252 trading days.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "vol_252d is not null"
+
+      - name: parkinson_vol_21d
+        description: >
+          High-low range volatility estimator, ~5x more statistically efficient
+          than close-to-close at the same sample size but blind to overnight
+          gaps. Both are kept for that reason.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "parkinson_vol_21d is not null"
+
+      - name: beta_252d
+        description: >
+          OLS slope of the symbol's daily log return on int_market_daily's,
+          over 252 trading days. NULL unless at least 200 paired observations
+          are in the frame.
+
+      - name: idio_vol_252d
+        description: >
+          Residual volatility - the part of variance the market does not
+          explain. Derived as vol_252d * sqrt(1 - corr^2), exact for a
+          univariate OLS fit.
+
+      - name: max_drawdown_252d
+        description: >
+          Deepest peak-to-trough decline inside the trailing year. Negative by
+          construction; 0 means today closed at a 252-day high.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -1
+                max_value: 0
+                row_condition: "max_drawdown_252d is not null"
+
+      - name: rsi_14
+        description: >
+          Cutler's RSI - simple 14-bar means of gains and losses rather than
+          Wilder's recursive smoothing. A run of pure gains returns 100 and a
+          flat run returns 50, both handled explicitly rather than by division.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 100
+                row_condition: "rsi_14 is not null"
+
+      - name: stoch_k_14
+        description: Position of the close within its 14-bar high-low range, 0-100.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 100
+                row_condition: "stoch_k_14 is not null"
+
+      - name: amihud_illiq_21d
+        description: >
+          Mean absolute return per dollar traded. Values are ~1e-11 in absolute
+          terms; the feature is only meaningful after cross-sectional ranking.
+
+      - name: adv_21d
+        description: 21-day average dollar volume. The liquidity filter's input.
+
+      - name: obv_slope_21d
+        description: >
+          21-day slope of on-balance volume, normalized by average share
+          volume. The OBV level itself is not exported - it depends on where
+          the cumulative sum starts and so would differ between a full refresh
+          and an incremental slice, whereas a slope over a bounded frame does not.
+
+  # =====================================================================
+  - name: int_features_daily
+    description: >
+      The point-in-time as-of join, grain (symbol, date). Attaches to each bar
+      the most recent fundamental whose available_from is on or before that
+      date, using lead() to give every filing a half-open validity window - the
+      interval form of the `distinct on` in GH-35, same result without the
+      180M-row sort. Adds days_since_available and the valuation ratios, which
+      move daily because a quarterly fundamental is divided by that day's price.
+      Valuation uses the RAW close (adj_close / adj_factor), never the adjusted
+      one, because share counts and EPS are as-reported.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, date]
+
+    columns:
+      - name: symbol
+        data_tests:
+          - not_null
+      - name: date
+        data_tests:
+          - not_null
+
+      - name: available_from
+        description: >
+          Visibility date of the attached fundamental. NULL for bars that
+          predate a symbol's first filing - those rows survive with NULL
+          fundamentals rather than being dropped.
+
+      - name: days_since_available
+        description: >
+          date - available_from. A staleness feature in its own right and the
+          diagnostic that makes a broken lag visible: it can never be negative.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "days_since_available is not null"
+
+      - name: close_raw
+        description: >
+          Unadjusted close, reconstructed as adj_close / adj_factor. The correct
+          input for anything divided by an as-reported per-share figure.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                strictly: true
+                row_condition: "close_raw is not null"
+
+      - name: market_cap
+        description: close_raw * shares_outstanding.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "market_cap is not null"
+
+      - name: price_to_earnings
+        description: >
+          close_raw / eps_ttm. Negative for loss-making companies, which is the
+          honest answer; earnings_yield is the better-behaved inverse for
+          cross-sectional ranking.
+
+      - name: fcf_yield
+        description: free_cash_flow_ttm / market_cap.
+
+      - name: ev_to_ebitda
+        description: >
+          (market_cap + total_debt - cash - short-term investments) / ebitda_ttm.
+
+      - name: turnover_21d
+        description: >
+          21-day average share volume divided by shares outstanding. Lives here
+          rather than in int_technicals_daily because it needs a fundamental.

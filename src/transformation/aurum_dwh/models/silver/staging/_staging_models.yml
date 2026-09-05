@@ -1,0 +1,338 @@
+version: 2
+
+# NOTE on syntax: dbt 1.12 requires arguments to generic tests to be nested
+# under an `arguments:` key. Passing them at the top level still runs but emits
+# MissingArgumentsPropertyInGenericTestDeprecation.
+
+models:
+  - name: stg_ohlcv_daily
+    description: >
+      Cleaned, split- and dividend-adjusted daily bars. One row per
+      (symbol, date). Bad ticks that bronze preserves by design - zero or null
+      volume, non-positive OHLC, bars whose high/low do not bound the bar - are
+      dropped here, so this model has fewer rows than br_ohlcv_1d. Prices and
+      adj_volume are on the adjusted basis; raw_volume and dollar_volume are
+      not. No cross-row features: returns and rolling windows live downstream.
+    data_tests:
+      # Grain. Also the assertion that makes md5_hash a valid unique_key.
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, date]
+
+    columns:
+      - name: md5_hash
+        description: >
+          Deterministic PK inherited from bronze, built by the ingestion config
+          from cols_for_pk = (SYMBOL, DATE). Used as the incremental unique_key.
+        data_tests:
+          - unique
+          - not_null
+
+      - name: symbol
+        data_tests:
+          - not_null
+
+      - name: date
+        description: Bar date.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                # History floor in the feed config is 2000-01-01.
+                min_value: "'1990-01-01'::date"
+                max_value: "current_date + 1"
+
+      - name: adj_open
+        description: Opening price on the split/dividend-adjusted basis.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                strictly: true
+
+      - name: adj_high
+        description: High price on the adjusted basis. Bounds the bar.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                strictly: true
+
+      - name: adj_low
+        description: Low price on the adjusted basis. Bounds the bar.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                strictly: true
+
+      - name: adj_close
+        description: >
+          Carried through from bronze as landed, not recomputed. The numerator
+          of adj_factor, so the base filter guarantees it is positive.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                strictly: true
+
+      - name: adj_factor
+        description: >
+          adj_close / close - the bar's cumulative split and dividend factor.
+          Trends toward 1 at the most recent bar and below 1 going back.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                strictly: true
+
+      - name: adj_volume
+        description: >
+          Share count rescaled by 1 / adj_factor so it is comparable across a
+          split. Use this for rolling-volume features, not raw_volume.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                strictly: true
+
+      - name: raw_volume
+        description: Share count exactly as landed. Not split-adjusted.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                strictly: true
+
+      - name: dollar_volume
+        description: >
+          raw close x raw volume. Notional traded is split-invariant, so no
+          adjustment is applied to either leg. This is what var('min_adv_usd')
+          filters against downstream.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                strictly: true
+
+      - name: stock_splits
+        description: Split ratio on the bar, 0 when no split occurred.
+
+      - name: dividends
+        description: Dividend paid on the bar, 0 when none.
+
+      - name: run_date
+        description: Ingestion run date. Drives the incremental lookback window.
+        data_tests:
+          - not_null
+
+      - name: execution_id
+        description: YYYYMMDD_HHMMSSssssss stamp per feed run, from bronze.
+        data_tests:
+          - not_null
+
+  - name: stg_financials_long
+    description: >
+      All six bronze statement mirrors union into one long fact. One row per
+      (symbol, statement, period_type, fiscal_period_end, concept). Period
+      labels are parsed to a real date; concept_map attaches canonical_name via
+      a LEFT join so unmapped concepts survive with canonical_name NULL and the
+      seed's coverage stays measurable. Deduped to latest execution_id per
+      grain, which stands in for the spec's amendment-supersedes rule until
+      EDGAR ingestion carries filed_date. Still long, not pivoted.
+    data_tests:
+      # The grain. Also, the assertion that makes the composite unique_key valid.
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, statement, period_type, fiscal_period_end, concept]
+
+    columns:
+      - name: symbol
+        data_tests:
+          - not_null
+
+      - name: statement
+        description: Which statement the row came from.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [income, cashflow, balance_sheet]
+
+      - name: period_type
+        description: Quarterly or annual, from which of the six mirrors it came.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [quarterly, annual]
+
+      - name: fiscal_period_end
+        description: >
+          Parsed from period_label. CALENDAR quarter/year end, not the true
+          fiscal period end - EDGAR ingestion carries no period_end yet, so
+          non-December fiscal years are shifted by up to a quarter.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                # Landed data starts at FY 2007. Statements carry forward-dated
+                # periods for filings covering a period that has not closed, so
+                # the ceiling is generous rather than current_date.
+                min_value: "'1990-01-01'::date"
+                max_value: "current_date + interval '2 years'"
+
+      - name: concept
+        description: Raw XBRL concept as filed.
+        data_tests:
+          - not_null
+
+      - name: fiscal_year
+        data_tests:
+          - not_null
+
+      - name: fiscal_quarter
+        description: 1-4 for quarterly rows, NULL for annual rows by design.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4]
+                quote: false
+          # The NULLs are not arbitrary: annual rows and only annual rows.
+          - not_null:
+              config:
+                where: "period_type = 'quarterly'"
+
+      - name: period_label
+        description: Raw vendor label, kept verbatim for debugging the parser.
+        data_tests:
+          - not_null
+
+      - name: canonical_name
+        description: >
+          Canonical financial field from seeds/concept_map.csv. NULL means the
+          concept is not in the seed - that is coverage signal, not an error.
+          Do not add a not_null test here.
+
+      - name: canonical_sign
+        description: >
+          Polarity from the seed. Carried through for the pivot model, which
+          uses it to normalise concepts reported with inverted sign.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [-1, 1]
+                quote: false
+
+      - name: concept_priority
+        description: >
+          Seed tiebreak rank. Carried through for the pivot model, which uses
+          it when two concepts compete for one canonical_name.
+        data_tests:
+          - not_null:
+              config:
+                where: "canonical_name is not null"
+
+      - name: value
+        description: The reported figure. NULL on abstract presentation rows.
+
+      - name: is_abstract
+        description: >
+          True for presentation headers that carry no value of their own.
+        data_tests:
+          - not_null
+
+      - name: is_total
+        data_tests:
+          - not_null
+
+      - name: run_date
+        description: Ingestion run date. Drives the incremental lookback window.
+        data_tests:
+          - not_null
+
+      - name: execution_id
+        description: >
+          YYYYMMDD_HHMMSSssssss stamp per feed run. The dedupe ordering key -
+          "latest ingest wins" is literally a sort on this.
+        data_tests:
+          - not_null
+
+      - name: md5_hash
+        description: >
+          Inherited from bronze. NOT unique here: the grain is coarser than
+          bronze's, so it is a lineage pointer, not a key.
+        data_tests:
+          - not_null
+
+  - name: stg_companies
+    description: >
+      Cleaned S&P 500 constituent seed. One row per symbol - the sector
+      dimension. Symbols use Yahoo punctuation (BRK-B, not BRK.B), matching the
+      OHLCV tables, so no translation is needed to join.
+    data_tests:
+      - dbt_expectations.expect_table_row_count_to_be_between:
+          arguments:
+            # The index is 500 companies / ~503 listings. A large swing means
+            # the scrape broke, not that the index turned over.
+            min_value: 490
+            max_value: 520
+
+    columns:
+      - name: symbol
+        data_tests:
+          - unique
+          - not_null
+
+      - name: company_name
+        data_tests:
+          - not_null
+
+      - name: sector
+        description: GICS sector. 11 distinct values.
+        data_tests:
+          - not_null
+          - dbt_utils.not_empty_string
+
+      - name: industry
+        description: GICS sub-industry.
+        data_tests:
+          - not_null
+
+      - name: cik
+        description: EDGAR central index key, numeric.
+        data_tests:
+          - not_null
+
+      - name: cik_padded
+        description: CIK as the zero-padded 10-char string EDGAR's URLs use.
+        data_tests:
+          - not_null
+
+      - name: date_added
+        description: Date the company entered the index. A survivorship guard.
+        data_tests:
+          - not_null
+
+      - name: founded_year
+        description: >
+          Leading year parsed from the free-text `founded` column.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1600
+                max_value: 2100
+
+      - name: founded_raw
+        description: >
+          Raw `founded` text. 39 rows carry a "2013 (1888)" style annotation:
+          current entity, with the predecessor it descends from in parens.
