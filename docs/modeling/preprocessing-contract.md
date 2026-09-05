@@ -1,8 +1,11 @@
 # Preprocessing — the contract between the warehouse and the model
 
-> **Design — not yet built.** Specifies `src/modeling/data/`, implemented under
-> [#52](https://github.com/Analyst-Ninja/aurum/issues/52). Entry point:
-> [`modeling-design.md`](modeling-design.md).
+> **Built.** Implemented in `src/modeling/data/preprocess.py` and `splits.py` under
+> [#52](https://github.com/Analyst-Ninja/aurum/issues/52); the deny-lists live in
+> `src/modeling/config.py`. Entry point: [`modeling-design.md`](modeling-design.md).
+> Measured numbers below are from the live warehouse and are reproduced by
+> `uv run python -m src.modeling.cli train -c src/modeling/configs/lgbm_xs_excess_5d.yaml`,
+> which writes them to `models/preprocess_manifest.json`.
 
 Most of what a preprocessing stage normally does — scaling, winsorizing, rank-transforming — is
 already done, in SQL, per date, inside `gold.mart_features`. **This layer must not redo it.** What
@@ -82,8 +85,17 @@ Applied in this order, each one counted and written to `preprocess_manifest.json
 | # | Filter | Why | Measured cost |
 |---|---|---|---|
 | 1 | Drop rows with a NULL target | The last five trading dates have no five-day forward return yet — guaranteed by `tests/assert_targets_null_at_edge.sql` | **2,515 rows** (0.09%) |
-| 2 | **Warm-up burn-in** — drop the first 252 bars per symbol | See §3.1 | **126,335 rows** (4.4%) |
-| 3 | Drop dates with fewer than `min_cross_section` symbols (default 100) | A per-date z-score, decile or excess return over a handful of names is noise | **0 rows** — see §3.2 |
+| 2 | **Warm-up burn-in** — drop the first 252 bars per symbol | See §3.1 | **126,320 rows** (4.4%) |
+| 3 | Drop dates with fewer than `min_cross_section` symbols (default 100) | A per-date z-score, decile or excess return over a handful of names is noise | **48 rows** — see §3.2 |
+
+Rows out: **2,766,288**.
+
+**The order matters, and each number is measured with the earlier filters already
+applied.** Run standalone, filter 2 reports 126,335 — fifteen more. Three symbols in
+the panel have fewer than 252 bars in total, so all of their rows fall inside the
+burn-in window; filter 1 has already taken five right-edge rows from each, and a
+standalone `rn <= 252` query counts those five again. Chained, as the pipeline runs
+them, the number is 126,320.
 
 Tradability (`close_raw >= 1.0`, `adv_21d >= 1e6`) is **already applied inside
 `mart_training_set`**. Do not reapply it; doing so is harmless but signals a misreading of the
@@ -113,9 +125,10 @@ Note the null rates are *low* overall — `vol_252d` is 0.03% null and `beta_252
 whole panel — precisely because the warehouse's 900-day incremental lookback warms these windows up
 properly. The burn-in filter is about the small remaining head of each symbol's history.
 
-### 3.2 Filter 3 currently drops nothing — keep it anyway
+### 3.2 Filter 3 fires, and the date it catches is not the one you would expect
 
-The thinnest year in the panel is 2000, and even there each date carries 311–329 symbols.
+This filter was originally documented as inert, on the reasoning that the panel's thinnest *year* is
+2000 and even there each date carries 311–329 symbols:
 
 ```sql
 with c as (select date, count(*) n from gold.mart_training_set group by date)
@@ -125,10 +138,23 @@ select extract(year from date)::int, min(n), max(n) from c group by 1 order by 1
 -- 2002 | 335 | 349
 ```
 
-So the filter is a **guard, not an active filter** on current data. It stays because the universe is
-configurable and a future run on a narrower universe would silently produce meaningless
-cross-sectional statistics. The manifest logs the zero, which is the point — a guard that has never
-fired should say so.
+That looked at the left edge. The thin date is at the **right** edge:
+
+```sql
+with c as (select date, count(*) n from gold.mart_training_set group by date)
+select date, n from c where n < 100 order by date;
+-- 2026-08-26 | 48
+```
+
+**2026-08-26 carries 48 of 503 symbols**, and it is not the last date in the panel (that is
+2026-09-02), so this is not the usual right-edge taper — it looks like an incomplete ingestion run
+for that day. The filter drops those 48 rows, which is the correct outcome either way: a
+cross-sectional z-score or decile computed over 48 names is not comparable to one computed over 500,
+and feeding both to the same model teaches it that one date in 2026 behaves differently.
+
+So the filter is **not** a dormant guard. It also remains the right guard for the original reason —
+the universe is configurable, and a future run on a narrower one would otherwise produce meaningless
+cross-sectional statistics silently.
 
 ---
 
@@ -181,11 +207,23 @@ oscillators (`rsi_14`, `bollinger_pctb_20`), volatilities (`vol_21d`), growth ra
 *alongside* their `_z` versions — the raw value carries an absolute reading and the z-score carries
 a relative one, and letting the model choose is cheaper than guessing.
 
-Market-level columns (`market_vol_63d`, `market_breadth`, `market_xs_dispersion`, …) are also
-excluded from the feature set — they are identical across all symbols on a date and so carry zero
-ranking information, exactly the failure mode measured in
+Market-level columns are also excluded from the feature set — they are identical across all symbols
+on a date and so carry zero ranking information, exactly the failure mode measured in
 [`modeling-design.md`](modeling-design.md) §2.1. They remain available as **regime labels for
-reporting**, which is a different use.
+reporting**, which is a different use. Seven columns, listed in full:
+
+```
+market_ret_1d  market_ret_21d  market_ret_63d
+market_vol_21d  market_vol_63d  market_breadth  market_xs_dispersion
+```
+
+> **The `market_` trap**, and the reason that list is written out. **Twelve** columns start with
+> `market_`, but only the seven above are date-constant. `market_cap_z`, `market_cap_decile`,
+> `market_cap_vs_sector` and `market_corr_252d` are per-symbol features — a prefix rule would drop
+> four genuine features, silently. `market_cap` itself is excluded, but as a non-stationary *level*,
+> for the separate reason above.
+
+Like the `_decile` trap, this is why every deny-list is enumerated rather than matched.
 
 ---
 
@@ -266,10 +304,10 @@ Two JSON files, written at training, read at inference.
   "rows_in": 2895171,
   "filters": [
     {"name": "null_target",      "param": "fwd_ret_5d_excess", "dropped": 2515},
-    {"name": "warmup_burnin",    "param": 252,                 "dropped": 126335},
-    {"name": "min_cross_section","param": 100,                 "dropped": 0}
+    {"name": "warmup_burnin",    "param": 252,                 "dropped": 126320},
+    {"name": "min_cross_section","param": 100,                 "dropped": 48}
   ],
-  "rows_out": 2766321,
+  "rows_out": 2766288,
   "target_transforms": ["winsorize_1_99_per_date", "standardize_per_date"]
 }
 ```
