@@ -3,7 +3,7 @@
 **Version:** 1.0
 **Date:** 2026-07-12
 **Status:** Design approved
-**Parent spec:** [TECHNICAL_SPEC.md](TECHNICAL_SPEC.md)
+**Parent spec:** [TECHNICAL_SPEC.md](../architecture/TECHNICAL_SPEC.md)
 
 ---
 

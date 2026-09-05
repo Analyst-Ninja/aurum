@@ -249,7 +249,7 @@ rolling as (
         {#
             Sharpe over the frame, annualized. rf is the risk_free_annual var
             divided by 252 to reach a daily rate, matching the sharpe_30d
-            formula in docs/data-dictionary.md.
+            formula in docs/warehouse/data-dictionary.md.
         #}
         (avg(log_ret) over w_21 - {{ rf_daily }})
             / nullif(stddev_samp(log_ret) over w_21, 0) * sqrt(252)

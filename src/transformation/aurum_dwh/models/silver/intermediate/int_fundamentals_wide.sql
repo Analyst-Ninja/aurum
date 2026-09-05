@@ -34,7 +34,8 @@
     extras (cost_of_revenue, pretax_income, tax_expense, current_assets, ...)
     are not features themselves, they are the inputs int_fundamental_ratios
     needs for ROIC, the current ratio and net debt. Anything in the seed but
-    absent here was judged not to feed a ratio - see docs/concept-map-rationale.
+    absent here was judged not to feed a ratio - see
+    docs/warehouse/rationale/concept-map-rationale.md.
 #}
 {% set pivot_columns = [
     'revenue',
