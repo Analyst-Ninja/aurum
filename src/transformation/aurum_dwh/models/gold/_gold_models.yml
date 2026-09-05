@@ -243,7 +243,7 @@ models:
     description: >
       One row per symbol at its own latest bar. Headline price, fundamentals,
       ratios, technicals and sector - the flat, human-readable mart the FastMCP
-      server will query. Column contract in docs/data-dictionary.md, with the
+      server will query. Column contract in docs/warehouse/data-dictionary.md, with the
       two deviations documented in the model header (no news sentiment, and the
       21/63/252 risk windows in place of the 30/90 the dictionary names).
     data_tests:

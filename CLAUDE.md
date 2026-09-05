@@ -4,16 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-AURUM is mid-Phase-0. The **design** (`docs/TECHNICAL_SPEC.md`, spec v2.0) describes the full target system — Kafka backbone, Snowflake medallion, ML + MCP server. Most of that does not exist yet.
+AURUM is mid-Phase-0. The **design** (`docs/architecture/TECHNICAL_SPEC.md`, spec v2.0) describes the full target system — Kafka backbone, Snowflake medallion, ML + MCP server. Most of that does not exist yet.
 
 What actually exists and runs today:
 
 - `src/ingestion/` — a working config-driven ingestion framework (Yahoo OHLCV + EDGAR financial statements → **Postgres directly**, no Kafka in the code path yet).
-- `src/transformation/aurum_dwh/` — a dbt project pointed at **Postgres** (not Snowflake), with the full medallion **bronze**, **silver** and **gold** layers built and tested: 8 `br_*` mirrors, 3 `stg_*` models, 5 `int_*` feature models, 4 `mart_*` marts, 3 seeds, 234 tests (2 warn on documented real-data outliers, 0 error). The `dbt init` example models are gone.
+- `src/transformation/aurum_dwh/` — a dbt project pointed at **Postgres** (not Snowflake), with the full medallion **bronze**, **silver** and **gold** layers built and tested: 8 `br_*` mirrors, 3 `stg_*` models, 5 `int_*` feature models, 4 `mart_*` marts, 3 seeds, 237 tests (2 warn on documented real-data outliers, 0 error). The `dbt init` example models are gone. `gold.mart_features` holds ~2.9M rows across 503 symbols, 2000 → today. `docs/warehouse/dwh-medallion.md` documents it as built.
 - `src/feed/`, `src/inference/`, `src/mcp/`, `src/modeling/`, `airflow/`, `infra/` — empty `__init__.py` placeholders. `main.py` is empty.
 - `tests/` exists but holds no tests; the pytest step in CI is commented out.
 
-`README.md` ("Current state") and `docs/datasource-framework.md` describe the code as it is; `docs/TECHNICAL_SPEC.md` describes the target. `repo_structure.md` is an aspirational tree and does not match `src/`.
+`README.md` ("Current state") and `docs/ingestion/datasource-framework.md` describe the code as it is; `docs/architecture/TECHNICAL_SPEC.md` describes the target. `repo_structure.md` is an aspirational tree and does not match `src/`.
 
 ## Commands
 
@@ -34,8 +34,15 @@ uv run python -m src.ingestion.cli -c src/ingestion/configs/edgar/income_stateme
 #   -f/--full_load  True|False, default True — False resumes from the watermarks
 
 # dbt (project dir must be the dbt project root)
-# dbt lives in the `dbt` dependency group, NOT the default sync — the --group flag is required
-cd src/transformation/aurum_dwh && uv run --group dbt dbt debug|run|test
+# dbt lives in the `dbt` dependency group, NOT the default sync — `--group dbt` is required on every call
+cd src/transformation/aurum_dwh
+uv run --group dbt dbt debug                       # profile aurum_dwh reaches Postgres aurum
+uv run --group dbt dbt deps                        # dbt_utils + dbt_expectations
+uv run --group dbt dbt seed                        # company_meta, concept_map, selected_features
+uv run --group dbt dbt build                       # all models + all 237 tests
+uv run --group dbt dbt build --select bronze       # one layer at a time (bronze|silver|gold)
+uv run --group dbt dbt run --select mart_features+ # a model and everything downstream
+uv run --group dbt dbt test --select mart_features # tests for one model
 ```
 
 Add dependencies with `uv add <pkg>` — CI runs `--locked` and fails on `pyproject.toml`/`uv.lock` drift.
@@ -82,7 +89,7 @@ datasources/apis → producers → Kafka topics → consumers → Postgres (land
                           inference/ (live stream + model → decisions)
 ```
 
-Three ingestion domains that never share code paths: **Market** (Yahoo, minute OHLCV → `market.ohlcv.1m`), **EDGAR** (10-K/10-Q/8-K + XBRL → `edgar.filings`, incremental via daily-index + watermark — see `docs/edgar-incremental-ingestion.md`), **News** (headlines → `news.sentiment`; not started).
+Three ingestion domains that never share code paths: **Market** (Yahoo, minute OHLCV → `market.ohlcv.1m`), **EDGAR** (10-K/10-Q/8-K + XBRL → `edgar.filings`, incremental via daily-index + watermark — see `docs/ingestion/edgar-incremental-ingestion.md`), **News** (headlines → `news.sentiment`; not started).
 
 Invariants to preserve:
 - Consumers/sinks write **idempotently**; EDGAR dedup keeps the latest `filed_date` per `(cik, metric, period_end)` so amendments supersede.
@@ -95,10 +102,12 @@ Invariants to preserve:
 - **SEC EDGAR / Wikipedia** need an honest `User-Agent` (403 otherwise) and EDGAR is capped at 10 req/s. Get it from `src.utils.env.get_sec_user_agent()` (reads `SEC_USER_AGENT`, raises if unset) — don't hardcode one. `src/utils/env.load_env()` is the single `.env` loader; never `load_dotenv` an absolute path.
 - The dbt profile `aurum_dwh` (`~/.dbt/profiles.yml`) targets local **Postgres** `aurum`, schema `bronze`. A separate `aurum` profile points at Snowflake. Schemas are set per layer by `generate_schema_name` (`macros/`), which is overridden so `bronze`/`silver`/`gold` are used verbatim rather than prefixed with the profile schema.
 - **SonarCloud** gates every push/PR (`sonar-project.properties`, org `analyst-ninja`); `docs/**` and `nbs/**` excluded.
-- CI (`.github/workflows/ci.yml`) runs on `main`, `develop`, `epic/*`, and PRs — **lint + Sonar only**, tests are commented out. `terraform.yml` validates `infra/terraform/**`, which doesn't exist yet; plan/apply is deliberately local-only (`docs/infra-as-code.md` §5).
+- CI (`.github/workflows/ci.yml`) runs on `main`, `develop`, `epic/*`, and PRs — **lint + Sonar only**, tests are commented out. `terraform.yml` validates `infra/terraform/**`, which doesn't exist yet; plan/apply is deliberately local-only (`docs/operations/infra-as-code.md` §5).
 - GitHub Actions are pinned by full commit SHA — keep that when editing workflows.
 - `nbs/` notebooks are exploration only; several source files still carry `if __name__ == "__main__":` scratch blocks with absolute `/Users/codebase/...` paths — don't copy that pattern.
 
 ## Documentation map
 
-`docs/TECHNICAL_SPEC.md` (spec, build phases, target layout) · `docs/data-dictionary.md` (fields per layer) · `docs/dwh-medallion-plan.md` (approved plan for the dbt bronze/silver/gold layers + ML feature set; bronze, silver and gold are now **built**) · `docs/bronze-models-rationale.md` + `docs/silver-staging-models-rationale.md` + `docs/silver-intermediate-models-rationale.md` + `docs/gold-models-rationale.md` (the four layers **as built** — why each model is shaped the way it is, finance terms explained for non-finance readers; the intermediate doc carries the incremental-lookback/warm-up rules and the full-vs-incremental verification recipe; the gold doc carries the cross-sectional transform, the target/leakage contract and the walk-forward fold rule) · `docs/concept-map-rationale.md` (why each XBRL concept is mapped/dropped/ranked in `seeds/concept_map.csv`, with measured coverage) · `docs/selected-features-seed.md` (the SHAP feature-selection loop; why `seeds/selected_features.csv` must exist before any model is trained) · `docs/edgar-incremental-ingestion.md` · `docs/infra-as-code.md` (Terraform for Snowflake/Kafka/Postgres) · `docs/cicd.md` · `docs/datasource-framework.md` (ingestion framework as built: registry/factory/feed flow, config reference, rough edges) · `repo_structure.md` (aspirational tree — does not match `src/`).
+`docs/` is grouped by subject — `architecture/` (the target system), `ingestion/` + `warehouse/` (as built), `warehouse/rationale/` (why each model is shaped that way), `operations/`, `design-specs/` (dated history). `docs/README.md` is the index.
+
+`docs/architecture/TECHNICAL_SPEC.md` (spec, build phases, target layout) · `docs/warehouse/data-dictionary.md` (fields per layer) · `docs/warehouse/dwh-medallion.md` (the warehouse **as built**: layer map, model DAG, feature catalogue with formulas, the point-in-time lag decision, the incremental-lookback rule, how to add a feature, the SHAP loop, known approximations — the plan doc it replaced is deleted) · `docs/warehouse/rationale/bronze-models-rationale.md` + `docs/warehouse/rationale/silver-staging-models-rationale.md` + `docs/warehouse/rationale/silver-intermediate-models-rationale.md` + `docs/warehouse/rationale/gold-models-rationale.md` (the four layers **as built** — why each model is shaped the way it is, finance terms explained for non-finance readers; the intermediate doc carries the incremental-lookback/warm-up rules and the full-vs-incremental verification recipe; the gold doc carries the cross-sectional transform, the target/leakage contract and the walk-forward fold rule) · `docs/warehouse/rationale/concept-map-rationale.md` (why each XBRL concept is mapped/dropped/ranked in `seeds/concept_map.csv`, with measured coverage) · `docs/warehouse/rationale/selected-features-seed.md` (the SHAP feature-selection loop; why `seeds/selected_features.csv` must exist before any model is trained) · `docs/ingestion/edgar-incremental-ingestion.md` · `docs/operations/infra-as-code.md` (Terraform for Snowflake/Kafka/Postgres) · `docs/operations/cicd.md` · `docs/ingestion/datasource-framework.md` (ingestion framework as built: registry/factory/feed flow, config reference, rough edges) · `repo_structure.md` (aspirational tree — does not match `src/`).

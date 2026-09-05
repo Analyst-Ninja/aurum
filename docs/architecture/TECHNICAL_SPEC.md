@@ -187,7 +187,7 @@ News API ─────P──► news.sentiment ─────┘            
 
 #### 3.1.2 EDGAR Producer (`edgar_producer`)
 
-- **Purpose:** Daily poller implementing the incremental strategy (see `docs/edgar-incremental-ingestion.md`). Reads EDGAR's daily `master.idx`, filters to S&P 500 CIKs and forms `10-K`/`10-Q`/`8-K`, pulls `companyfacts` XBRL for the filers only, publishes one message per new fact.
+- **Purpose:** Daily poller implementing the incremental strategy (see `docs/ingestion/edgar-incremental-ingestion.md`). Reads EDGAR's daily `master.idx`, filters to S&P 500 CIKs and forms `10-K`/`10-Q`/`8-K`, pulls `companyfacts` XBRL for the filers only, publishes one message per new fact.
 - **Interface:** Publishes JSON to `edgar.filings`, keyed by `cik`.
   ```json
   {
@@ -275,7 +275,7 @@ Database `AURUM`, warehouse `COMPUTE_WH`, dbt adapter `dbt-snowflake`.
 - **Incremental:** silver models use dbt `is_incremental()` on `_ingested_at` / `filed_date`.
 - **Tests:** not-null/unique keys, positive volume, valid tickers, accepted `form_type` values.
 
-Field-level detail: `docs/data-dictionary.md`.
+Field-level detail: `docs/warehouse/data-dictionary.md`.
 
 ### 3.7 ML Training Pipeline
 
@@ -350,7 +350,7 @@ aurum/
 ├── airflow/dags/                # load + quality + retrain DAGs
 ├── infra/
 │   ├── docker-compose.yml       # runtime: kafka, postgres, airflow
-│   └── terraform/               # IaC: snowflake objects, kafka topics, postgres roles (see docs/infra-as-code.md)
+│   └── terraform/               # IaC: snowflake objects, kafka topics, postgres roles (see docs/operations/infra-as-code.md)
 ├── nbs/                         # exploration notebooks
 ├── docs/
 │   ├── TECHNICAL_SPEC.md        # this document
@@ -366,7 +366,7 @@ aurum/
 
 | Phase | Deliverable | Effort |
 |-------|-------------|--------|
-| 0 | Infra: docker-compose Kafka + Postgres + Airflow; Terraform for Snowflake objects, Kafka topics, Postgres roles ([infra-as-code.md](infra-as-code.md)) | 1.5d |
+| 0 | Infra: docker-compose Kafka + Postgres + Airflow; Terraform for Snowflake objects, Kafka topics, Postgres roles ([infra-as-code.md](../operations/infra-as-code.md)) | 1.5d |
 | 1 | EDGAR producer (incremental, daily-index) + consumer → Postgres | 2d |
 | 2 | Market websocket producer + consumer → Postgres | 2d |
 | 3 | Airflow incremental load Postgres → Snowflake RAW | 1d |

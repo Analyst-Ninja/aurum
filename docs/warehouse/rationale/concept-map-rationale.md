@@ -271,7 +271,7 @@ and nothing else. Companies funded by commercial paper will understate.
 
 346 symbols report `OperatingLeaseLiabilityNoncurrent` — **better coverage than debt itself**. They are given their own canonical fields and are **not** folded into `long_term_debt`.
 
-Reasoning: [FASB explicitly characterizes operating leases as operating liabilities and not debt](https://www.usbank.com/corporate-and-commercial-banking/insights/credit-finance/equipment/leveraging-asc-842-accounting-leases.html). `docs/data-dictionary.md` defines `debt_to_market_cap` on long-term debt alone, so excluding leases is the internally consistent choice. Rating agencies do adjust for leases, and post-ASC-842 research finds [credit ratings decline ~1.5% on average after adoption](https://ileasepro.com/blog/asc842-impacts-on-financial-ratios-and-covenants/) — so a lease-adjusted leverage variant is a legitimate future feature. Keeping the components separate makes that additive rather than a redefinition.
+Reasoning: [FASB explicitly characterizes operating leases as operating liabilities and not debt](https://www.usbank.com/corporate-and-commercial-banking/insights/credit-finance/equipment/leveraging-asc-842-accounting-leases.html). `docs/warehouse/data-dictionary.md` defines `debt_to_market_cap` on long-term debt alone, so excluding leases is the internally consistent choice. Rating agencies do adjust for leases, and post-ASC-842 research finds [credit ratings decline ~1.5% on average after adoption](https://ileasepro.com/blog/asc842-impacts-on-financial-ratios-and-covenants/) — so a lease-adjusted leverage variant is a legitimate future feature. Keeping the components separate makes that additive rather than a redefinition.
 
 ### `total_equity` — parent-attributable
 
@@ -326,7 +326,7 @@ Alternative if you dislike synthetics: drop the row and derive `gross_profit` in
 
 ### 7.1 No period-end share count — `market_cap` uses a proxy
 
-`docs/data-dictionary.md` specifies `dei:EntityCommonStockSharesOutstanding`. **It is not ingested.** Neither is `CommonStockSharesOutstanding` nor `CommonStockSharesIssued`. The only share counts available are the weighted averages used for EPS.
+`docs/warehouse/data-dictionary.md` specifies `dei:EntityCommonStockSharesOutstanding`. **It is not ingested.** Neither is `CommonStockSharesOutstanding` nor `CommonStockSharesIssued`. The only share counts available are the weighted averages used for EPS.
 
 The proxy is sound — `NetIncomeLoss / EarningsPerShareBasic` versus reported weighted-average shares:
 

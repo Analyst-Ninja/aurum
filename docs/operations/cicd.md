@@ -3,7 +3,7 @@
 **Version:** 1.0
 **Date:** 2026-07-12
 **Status:** Implemented (workflows live in `.github/workflows/`)
-**Related:** [TECHNICAL_SPEC.md](TECHNICAL_SPEC.md) · [infra-as-code.md](infra-as-code.md)
+**Related:** [TECHNICAL_SPEC.md](../architecture/TECHNICAL_SPEC.md) · [infra-as-code.md](infra-as-code.md)
 
 ---
 
