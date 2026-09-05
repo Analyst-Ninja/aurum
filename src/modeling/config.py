@@ -21,6 +21,9 @@ class SourceConfig(BaseModel):
 
     db_schema: str
     table: str
+    # Inference reads the feature mart, which by construction has no target columns —
+    # that is what makes the manifest replay a real check rather than a formality.
+    predict_table: str = "mart_features"
     db_name: str
     # Env var NAMES, not values.
     host: str
@@ -148,6 +151,66 @@ class SplitConfig(BaseModel):
     decay_half_life_years: float | None = None
 
 
+class ModelParams(BaseModel):
+    """One LightGBM configuration.
+
+    The defaults regularize far harder than the library's. `min_child_samples=20`
+    would let a leaf fit 20 rows out of 2.7M on a target whose R2 is single-digit
+    basis points, and `feature_fraction` is low because the `_z` / `_decile` /
+    `_vs_sector` triplets are heavily collinear — sampling columns decorrelates the
+    trees.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    objective: str = "regression"
+    num_leaves: int = 31
+    min_child_samples: int = 2000
+    learning_rate: float = 0.03
+    feature_fraction: float = 0.4
+    bagging_fraction: float = 0.7
+    bagging_freq: int = 1
+    lambda_l2: float = 10.0
+    # A cap, not a target — early stopping on IC decides where to stop.
+    n_estimators: int = 1500
+    early_stopping_rounds: int = 100
+    verbosity: int = -1
+    seed: int = 42
+
+    # Resource limits, tuned for an Apple Silicon laptop rather than a server.
+    #
+    # LightGBM has no Metal backend — its GPU support is OpenCL and CUDA only, and the
+    # PyPI wheel is CPU-only regardless — so the M-series GPU cannot be used here. The
+    # levers that do work are threads and bin count.
+    #
+    # num_threads counts *performance* cores, not all cores. An M4 has 4P + 6E; every
+    # boosting iteration ends at a barrier, so scheduling work onto the slow E-cores
+    # makes all ten threads wait on the slowest. Four is usually faster than ten, and
+    # markedly cooler.
+    num_threads: int = 4
+    # 63 rather than the default 255. The binned dataset is the dominant allocation,
+    # and a quarter of the bins is a quarter of the memory plus faster histograms. The
+    # features are already z-scores, deciles and ratios, so finer bins buy little on a
+    # target this noisy.
+    max_bin: int = 63
+    # Skip LightGBM's row-wise/col-wise auto-detection, which builds both and measures.
+    force_col_wise: bool = True
+
+
+class TrainConfig(BaseModel):
+    """The hyperparameter search, such as it is.
+
+    A list, so widening the search is a YAML edit. It stays at one entry by default:
+    the design defers Optuna because a large search over a noisy objective
+    manufactures overfitting and inflates `n_configs_tried`, which then deflates
+    every Sharpe reported downstream.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    grid: list[ModelParams] = [ModelParams()]
+
+
 class ModelingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -156,6 +219,7 @@ class ModelingConfig(BaseModel):
     cache: CacheConfig = CacheConfig()
     preprocess: PreprocessConfig = PreprocessConfig()
     splits: SplitConfig = SplitConfig()
+    train: TrainConfig = TrainConfig()
     # Manifests land here. GH-53's registry moves them under a version directory.
     output_dir: Path = Path("models")
 
