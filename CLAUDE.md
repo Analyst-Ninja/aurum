@@ -9,7 +9,7 @@ AURUM is mid-Phase-0. The **design** (`docs/TECHNICAL_SPEC.md`, spec v2.0) descr
 What actually exists and runs today:
 
 - `src/ingestion/` — a working config-driven ingestion framework (Yahoo OHLCV + EDGAR financial statements → **Postgres directly**, no Kafka in the code path yet).
-- `src/transformation/aurum_dwh/` — a dbt project pointed at **Postgres** (not Snowflake), with the full medallion **bronze**, **silver** and **gold** layers built and tested: 8 `br_*` mirrors, 3 `stg_*` models, 5 `int_*` feature models, 4 `mart_*` marts, 3 seeds, 234 tests (2 warn on documented real-data outliers, 0 error). The `dbt init` example models are gone.
+- `src/transformation/aurum_dwh/` — a dbt project pointed at **Postgres** (not Snowflake), with the full medallion **bronze**, **silver** and **gold** layers built and tested: 8 `br_*` mirrors, 3 `stg_*` models, 5 `int_*` feature models, 4 `mart_*` marts, 3 seeds, 237 tests (2 warn on documented real-data outliers, 0 error). The `dbt init` example models are gone. `gold.mart_features` holds ~2.9M rows across 503 symbols, 2000 → today. `docs/dwh-medallion.md` documents it as built.
 - `src/feed/`, `src/inference/`, `src/mcp/`, `src/modeling/`, `airflow/`, `infra/` — empty `__init__.py` placeholders. `main.py` is empty.
 - `tests/` exists but holds no tests; the pytest step in CI is commented out.
 
@@ -34,8 +34,15 @@ uv run python -m src.ingestion.cli -c src/ingestion/configs/edgar/income_stateme
 #   -f/--full_load  True|False, default True — False resumes from the watermarks
 
 # dbt (project dir must be the dbt project root)
-# dbt lives in the `dbt` dependency group, NOT the default sync — the --group flag is required
-cd src/transformation/aurum_dwh && uv run --group dbt dbt debug|run|test
+# dbt lives in the `dbt` dependency group, NOT the default sync — `--group dbt` is required on every call
+cd src/transformation/aurum_dwh
+uv run --group dbt dbt debug                       # profile aurum_dwh reaches Postgres aurum
+uv run --group dbt dbt deps                        # dbt_utils + dbt_expectations
+uv run --group dbt dbt seed                        # company_meta, concept_map, selected_features
+uv run --group dbt dbt build                       # all models + all 237 tests
+uv run --group dbt dbt build --select bronze       # one layer at a time (bronze|silver|gold)
+uv run --group dbt dbt run --select mart_features+ # a model and everything downstream
+uv run --group dbt dbt test --select mart_features # tests for one model
 ```
 
 Add dependencies with `uv add <pkg>` — CI runs `--locked` and fails on `pyproject.toml`/`uv.lock` drift.
@@ -101,4 +108,4 @@ Invariants to preserve:
 
 ## Documentation map
 
-`docs/TECHNICAL_SPEC.md` (spec, build phases, target layout) · `docs/data-dictionary.md` (fields per layer) · `docs/dwh-medallion-plan.md` (approved plan for the dbt bronze/silver/gold layers + ML feature set; bronze, silver and gold are now **built**) · `docs/bronze-models-rationale.md` + `docs/silver-staging-models-rationale.md` + `docs/silver-intermediate-models-rationale.md` + `docs/gold-models-rationale.md` (the four layers **as built** — why each model is shaped the way it is, finance terms explained for non-finance readers; the intermediate doc carries the incremental-lookback/warm-up rules and the full-vs-incremental verification recipe; the gold doc carries the cross-sectional transform, the target/leakage contract and the walk-forward fold rule) · `docs/concept-map-rationale.md` (why each XBRL concept is mapped/dropped/ranked in `seeds/concept_map.csv`, with measured coverage) · `docs/selected-features-seed.md` (the SHAP feature-selection loop; why `seeds/selected_features.csv` must exist before any model is trained) · `docs/edgar-incremental-ingestion.md` · `docs/infra-as-code.md` (Terraform for Snowflake/Kafka/Postgres) · `docs/cicd.md` · `docs/datasource-framework.md` (ingestion framework as built: registry/factory/feed flow, config reference, rough edges) · `repo_structure.md` (aspirational tree — does not match `src/`).
+`docs/TECHNICAL_SPEC.md` (spec, build phases, target layout) · `docs/data-dictionary.md` (fields per layer) · `docs/dwh-medallion.md` (the warehouse **as built**: layer map, model DAG, feature catalogue with formulas, the point-in-time lag decision, the incremental-lookback rule, how to add a feature, the SHAP loop, known approximations — the plan doc it replaced is deleted) · `docs/bronze-models-rationale.md` + `docs/silver-staging-models-rationale.md` + `docs/silver-intermediate-models-rationale.md` + `docs/gold-models-rationale.md` (the four layers **as built** — why each model is shaped the way it is, finance terms explained for non-finance readers; the intermediate doc carries the incremental-lookback/warm-up rules and the full-vs-incremental verification recipe; the gold doc carries the cross-sectional transform, the target/leakage contract and the walk-forward fold rule) · `docs/concept-map-rationale.md` (why each XBRL concept is mapped/dropped/ranked in `seeds/concept_map.csv`, with measured coverage) · `docs/selected-features-seed.md` (the SHAP feature-selection loop; why `seeds/selected_features.csv` must exist before any model is trained) · `docs/edgar-incremental-ingestion.md` · `docs/infra-as-code.md` (Terraform for Snowflake/Kafka/Postgres) · `docs/cicd.md` · `docs/datasource-framework.md` (ingestion framework as built: registry/factory/feed flow, config reference, rough edges) · `repo_structure.md` (aspirational tree — does not match `src/`).

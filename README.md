@@ -62,6 +62,16 @@ uv run python -m src.ingestion.cli -c src/ingestion/configs/edgar/income_stateme
 uv run ruff check src/ main.py   # lint (the CI gate)
 ```
 
+**Build the warehouse:**
+
+```bash
+cd src/transformation/aurum_dwh
+# dbt lives in the `dbt` dependency group, not the default sync — `--group dbt` is required
+uv run --group dbt dbt debug                  # profile aurum_dwh reaches Postgres aurum
+uv run --group dbt dbt deps && uv run --group dbt dbt seed
+uv run --group dbt dbt build                  # bronze → silver → gold, plus 237 tests
+```
+
 See the [Ingestion Framework Guide](docs/datasource-framework.md) for diagrams, a step-by-step run walkthrough, the recipe for adding a new source, and the known rough edges.
 
 ## Tech stack
@@ -74,6 +84,7 @@ Kafka · Postgres · Apache Airflow · Snowflake · dbt · Python 3.12 (uv) · s
 |-----|---------|
 | [Technical Specification](docs/TECHNICAL_SPEC.md) | Full architecture, component specs, constraints, build phases |
 | [Ingestion Framework Guide](docs/datasource-framework.md) | How datasources, feeds, and configs connect; how to add a source |
+| [Warehouse Guide](docs/dwh-medallion.md) | The medallion as built: layer map, model DAG, feature formulas, the point-in-time lag, the incremental-lookback rule, how to add a feature |
 | [Data Dictionary](docs/data-dictionary.md) | Every field, layer by layer, with formulas and gotchas |
 | [EDGAR Incremental Ingestion](docs/edgar-incremental-ingestion.md) | Daily-index + watermark strategy for fetching only new filings |
 | [Infrastructure as Code](docs/infra-as-code.md) | Terraform for Snowflake objects, Kafka topics, Postgres roles |
@@ -87,15 +98,16 @@ Design phase complete (spec v2.0, 2026-07-12). Implementation is mid-Phase 0 —
 
 - `src/ingestion/` — the config-driven framework described above. Yahoo OHLCV (1d, 1min) and EDGAR income / cash-flow / balance-sheet statements (yearly + quarterly) land **directly in Postgres**; Kafka is not in the code path yet.
 - Watermark-based incremental loading against the landing tables.
+- `src/transformation/aurum_dwh/` — the **full bronze / silver / gold medallion**, built and tested: 8 `br_*` mirrors, 3 `stg_*` models, 5 `int_*` feature models, 4 `mart_*` marts, 3 seeds and 237 dbt tests. `gold.mart_features` is ~2.9M rows across 503 symbols from 2000 to today, with point-in-time fundamentals, ~120 raw features and a per-date cross-sectional block (`_z` / `_decile` / `_vs_sector` on 36 of them); `gold.mart_training_set` adds forward-return targets and walk-forward folds. It runs against local **Postgres**, not Snowflake. See the [Warehouse guide](docs/dwh-medallion.md).
 - CI: ruff lint + SonarCloud quality gate on `main`, `develop`, `epic/*`, and PRs.
 
 **Not built yet**
 
-- Kafka producers/consumers, the realtime websocket feed, and news ingestion.
+- Kafka producers/consumers, the realtime websocket feed, and news ingestion — so no sentiment exists anywhere in the warehouse.
 - Airflow DAGs (`airflow/` is a placeholder) and the Terraform under `infra/`.
-- The dbt project (`src/transformation/aurum_dwh/`) exists but still holds `dbt init` example models and currently targets local **Postgres**, not Snowflake.
-- ML training / SHAP (`src/modeling/`), realtime inference (`src/inference/`), and the FastMCP server (`src/mcp/`) — placeholders.
-- Tests. `tests/` is empty and the pytest step in CI is commented out.
+- Snowflake. The dbt project targets local Postgres; the medallion moves later.
+- ML training / SHAP (`src/modeling/`), realtime inference (`src/inference/`), and the FastMCP server (`src/mcp/`) — placeholders. `gold.mart_feature_summary` and `gold.mart_stock_screener` are already built to their contracts so those pieces can land without reshaping the warehouse.
+- Python tests. `tests/` is empty and the pytest step in CI is commented out (the 237 dbt tests are separate and do run).
 
 ## Data sources & cost
 

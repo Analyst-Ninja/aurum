@@ -6,8 +6,8 @@ term is explained the first time it appears.
 Companion docs: [`bronze-models-rationale.md`](bronze-models-rationale.md),
 [`silver-staging-models-rationale.md`](silver-staging-models-rationale.md).
 
-Implements [GH-35](https://github.com/Analyst-Ninja/aurum/issues/35) (Phase 3 of
-[`dwh-medallion-plan.md`](dwh-medallion-plan.md)).
+Implements [GH-35](https://github.com/Analyst-Ninja/aurum/issues/35). The plan it
+was built from is folded into [`dwh-medallion.md`](dwh-medallion.md).
 
 ---
 

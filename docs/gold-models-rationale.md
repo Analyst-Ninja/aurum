@@ -7,8 +7,8 @@ Companion docs: [`bronze-models-rationale.md`](bronze-models-rationale.md),
 [`silver-staging-models-rationale.md`](silver-staging-models-rationale.md),
 [`silver-intermediate-models-rationale.md`](silver-intermediate-models-rationale.md).
 
-Implements [GH-36](https://github.com/Analyst-Ninja/aurum/issues/36) (Phases 4
-and 5 of [`dwh-medallion-plan.md`](dwh-medallion-plan.md)).
+Implements [GH-36](https://github.com/Analyst-Ninja/aurum/issues/36). The plan it
+was built from is folded into [`dwh-medallion.md`](dwh-medallion.md).
 
 ---
 
