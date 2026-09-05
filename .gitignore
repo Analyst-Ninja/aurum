@@ -229,3 +229,8 @@ __marimo__/
 
 # notebooks
 nbs/*
+
+# modelling artifacts — anchored to the repo root, so the src/modeling/data package
+# is still tracked. Unanchored, `data/` matches a directory of that name at any depth.
+/data/
+/models/

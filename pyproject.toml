@@ -33,6 +33,9 @@ dev = [
 dbt = [
     "dbt-postgres>=1.11.0",
 ]
+modeling = [
+    "pyarrow>=25.0.0",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "src/ingestion/runner.py" = ["F401"]
