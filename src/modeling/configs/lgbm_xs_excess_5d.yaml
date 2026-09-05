@@ -1,0 +1,20 @@
+# Cross-sectional 5-day excess-return model.
+# Credentials are env var NAMES, resolved from the repo-root .env at connect time.
+
+source:
+  db_schema: gold
+  table: mart_training_set
+  db_name: aurum
+  host: HOST
+  port: PORT
+  username: AURUM_USERNAME
+  password: AURUM_PASSWORD
+
+# Market-neutral: fwd_ret_5d minus the cross-sectional mean that date. Training on
+# the raw fwd_ret_5d makes SHAP collapse onto market-regime columns that carry no
+# ranking information — see docs/modeling/modeling-design.md section 2.1.
+target: fwd_ret_5d_excess
+
+cache:
+  dir: data/training
+  enabled: true
