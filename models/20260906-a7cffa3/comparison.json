@@ -1,0 +1,16 @@
+{
+  "full": {
+    "metrics_path": "/Users/codebase/Documents/codebase/aurum/models/20260905-unknown/metrics.json",
+    "ic": 0.004149980590638546,
+    "icir": 0.42613644423179614,
+    "decile_spread": 0.0010408584463822781
+  },
+  "narrowed": {
+    "metrics_path": "/Users/codebase/Documents/codebase/aurum/models/20260906-a7cffa3/metrics.json",
+    "ic": 0.007574011757861236,
+    "icir": 0.8109068944846531,
+    "decile_spread": 0.0020062383261192167
+  },
+  "narrowed_wins": true,
+  "verdict": "Commit the seed."
+}

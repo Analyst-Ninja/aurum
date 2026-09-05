@@ -27,7 +27,11 @@ TRACKED_PACKAGES = ("lightgbm", "pandas", "numpy", "pyarrow")
 
 def git_sha(short: bool = False) -> str:
     """The commit this run came from, or ``unknown`` outside a repo."""
-    args = ["git", "rev-parse", "--short" if short else "HEAD"]
+    # `--short` is a flag, not a substitute for the revision: `git rev-parse --short`
+    # without HEAD exits 128, so every short call fell into the `unknown` branch and
+    # every run of a day shared the version id `{date}-unknown` — and silently
+    # overwrote the previous one, model.txt included.
+    args = ["git", "rev-parse", *(["--short"] if short else []), "HEAD"]
     try:
         return subprocess.run(
             args, capture_output=True, text=True, check=True

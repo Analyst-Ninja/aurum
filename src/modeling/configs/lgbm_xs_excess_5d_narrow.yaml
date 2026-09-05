@@ -1,0 +1,63 @@
+source:
+  db_schema: gold
+  table: mart_training_set
+  db_name: aurum
+  host: HOST
+  port: PORT
+  username: AURUM_USERNAME
+  password: AURUM_PASSWORD
+target: fwd_ret_5d_excess
+cache:
+  dir: data/training
+  enabled: true
+train:
+  grid:
+  - num_leaves: 31
+    min_child_samples: 2000
+    learning_rate: 0.03
+    feature_fraction: 0.4
+    lambda_l2: 10.0
+    n_estimators: 1500
+    early_stopping_rounds: 100
+preprocess:
+  allow_list:
+  - industry
+  - reversal_5d_z
+  - amihud_illiq_21d
+  - amihud_illiq_21d_decile
+  - atr_14
+  - amihud_illiq_21d_z
+  - macd
+  - price_to_ma_50
+  - market_cap_z
+  - adv_21d_z
+  - max_drawdown_252d
+  - dist_from_52w_high_z
+  - macd_hist_z
+  - mom_12_1
+  - macd_signal
+  - ret_63d
+  - month_of_year
+  - sector
+  - mom_12_1_z
+  - stoch_k_14
+  - days_since_available
+  - ret_5d
+  - ebitda_ttm
+  - price_to_ma_50_z
+  - mom_12_1_vs_sector
+  - max_drawdown_252d_z
+  - ma_50_over_200
+  - amihud_illiq_21d_vs_sector
+  - reversal_5d_vs_sector
+  - ret_1d
+  - bollinger_pctb_20
+  - dist_from_52w_high
+  - bollinger_pctb_20_z
+  - vol_63d
+  - parkinson_vol_21d
+  - bollinger_width_20
+  - ret_252d
+  - ret_21d
+  - atr_pct
+  - dist_from_52w_low

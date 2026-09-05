@@ -35,6 +35,7 @@ dbt = [
 ]
 modeling = [
     "lightgbm>=4.7.0",
+    "matplotlib>=3.11.1",
     "pyarrow>=25.0.0",
     "scikit-learn>=1.5",
     "scipy>=1.18.1",

@@ -1,9 +1,10 @@
 # selected_features — the SHAP feature-selection loop
 
 > Companion to `src/transformation/aurum_dwh/seeds/selected_features.csv`.
-> Created 2026-09-03, currently holding a single placeholder row.
-> Real content arrives in **Phase 6** ([#55](https://github.com/Analyst-Ninja/aurum/issues/55)),
-> once a model exists to produce it.
+> Created 2026-09-03 with a single placeholder row; **replaced with a real SHAP ranking on
+> 2026-09-06** by [#55](https://github.com/Analyst-Ninja/aurum/issues/55). It now carries all 193
+> features of `mart_training_set`, ranked, with 40 selected — the `cap` rule bound, not the
+> cumulative-share rule. The producer is `src/modeling/explain/`.
 >
 > **This document is the consumer side** — the seed's schema, why it is a seed rather than a table,
 > and how `mart_feature_summary` reads it. The **producer** — what computes the SHAP ranking and

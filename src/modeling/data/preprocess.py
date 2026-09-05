@@ -129,6 +129,17 @@ def build_features(
     dropped = {column for group in denied.values() for column in group}
     features = [column for column in frame.columns if column not in dropped]
 
+    # The narrowed run. Intersecting *after* the deny-lists rather than replacing them
+    # is what makes an allow-list unable to re-admit a target: a poisoned
+    # `selected_features.csv` narrows the matrix, it cannot widen it. Order follows the
+    # allow-list (SHAP rank), and the manifest below records it so inference replays
+    # the same columns in the same order.
+    if config.allow_list is not None:
+        available = set(features)
+        features = [column for column in config.allow_list if column in available]
+        if not features:
+            raise ValueError("allow_list matched no columns of the panel")
+
     leaked = [
         column
         for column in features
@@ -159,6 +170,7 @@ def build_features(
         "categorical": categorical,
         "nan_policy": "native",
         "denied": denied,
+        "allow_list": config.allow_list,
     }
     return matrix, built
 

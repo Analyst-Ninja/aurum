@@ -1,8 +1,8 @@
 {
-  "version": "20260906-unknown",
-  "git_sha": "a300b922685a7f2dae2efefc41d0d8e0697e58f6",
-  "dbt_manifest_hash": "ba426b18f4189645cab63a86352cc995720dfdacf578a672e70acf84c6a1cee2",
-  "config_hash": "0f9549de1b6a838a6a4b8d1ec2c47fb211e09387ff06ebebf977457e5448c496",
+  "version": "20260906-a7cffa3",
+  "git_sha": "a7cffa3091a87367598a14deb01cb98540e22d03",
+  "dbt_manifest_hash": "3c9179a6af87ebd2e5af159294dda75c6b4570c576edb3c1f66bcf5f1193aaf2",
+  "config_hash": "71fd23a09503f18a097714b3831bb4ca4a2b3dc0e8a2ae5d1a09bb35d9153cdf",
   "target": "fwd_ret_5d_excess",
   "params": {
     "objective": "regression",
@@ -22,11 +22,11 @@
     "force_col_wise": true
   },
   "n_configs_tried": 1,
-  "mean_validation_ic": 0.033030205496257126,
-  "final_n_estimators": 67,
+  "mean_validation_ic": 0.034067433166723365,
+  "final_n_estimators": 32,
   "holdout_starts_at_fold": 298,
   "n_rows": 2529193,
-  "n_features": 193,
+  "n_features": 40,
   "package_versions": {
     "lightgbm": "4.7.0",
     "pandas": "3.0.5",
@@ -44,8 +44,8 @@
       "valid_end_date": "2010-12-31",
       "n_train": 2656639,
       "n_valid": 103464,
-      "best_iteration": 91,
-      "best_ic": 0.048543061208240486
+      "best_iteration": 32,
+      "best_ic": 0.046753030617127364
     },
     {
       "fold_index": 1,
@@ -57,8 +57,8 @@
       "valid_end_date": "2011-12-30",
       "n_train": 2654412,
       "n_valid": 105562,
-      "best_iteration": 264,
-      "best_ic": 0.040396597052630254
+      "best_iteration": 354,
+      "best_ic": 0.04604080112520468
     },
     {
       "fold_index": 2,
@@ -70,8 +70,8 @@
       "valid_end_date": "2012-12-31",
       "n_train": 2652679,
       "n_valid": 107159,
-      "best_iteration": 35,
-      "best_ic": 0.019640351507098707
+      "best_iteration": 58,
+      "best_ic": 0.021408322565089385
     },
     {
       "fold_index": 3,
@@ -83,8 +83,8 @@
       "valid_end_date": "2013-12-31",
       "n_train": 2649849,
       "n_valid": 109866,
-      "best_iteration": 99,
-      "best_ic": 0.04445773647488372
+      "best_iteration": 5,
+      "best_ic": 0.038562623277321725
     },
     {
       "fold_index": 4,
@@ -96,8 +96,8 @@
       "valid_end_date": "2014-12-31",
       "n_train": 2647324,
       "n_valid": 112265,
-      "best_iteration": 1,
-      "best_ic": 0.013455673247177634
+      "best_iteration": 27,
+      "best_ic": 0.014742866493311753
     },
     {
       "fold_index": 5,
@@ -109,8 +109,8 @@
       "valid_end_date": "2015-12-31",
       "n_train": 2645731,
       "n_valid": 113758,
-      "best_iteration": 6,
-      "best_ic": 0.01547776769885753
+      "best_iteration": 32,
+      "best_ic": 0.019951491691673935
     },
     {
       "fold_index": 6,
@@ -122,8 +122,8 @@
       "valid_end_date": "2016-12-30",
       "n_train": 2644359,
       "n_valid": 115055,
-      "best_iteration": 41,
-      "best_ic": 0.027375582588163024
+      "best_iteration": 3,
+      "best_ic": 0.028270810193378803
     },
     {
       "fold_index": 7,
@@ -135,8 +135,8 @@
       "valid_end_date": "2017-12-29",
       "n_train": 2643120,
       "n_valid": 116198,
-      "best_iteration": 67,
-      "best_ic": 0.04672630357769646
+      "best_iteration": 79,
+      "best_ic": 0.04569124465582313
     },
     {
       "fold_index": 8,
@@ -148,8 +148,8 @@
       "valid_end_date": "2018-12-31",
       "n_train": 2641469,
       "n_valid": 117775,
-      "best_iteration": 42,
-      "best_ic": 0.04003862087201047
+      "best_iteration": 2,
+      "best_ic": 0.04063871447982936
     },
     {
       "fold_index": 9,
@@ -161,8 +161,8 @@
       "valid_end_date": "2019-12-31",
       "n_train": 2640524,
       "n_valid": 118694,
-      "best_iteration": 93,
-      "best_ic": 0.04706725781200041
+      "best_iteration": 492,
+      "best_ic": 0.051529460800570734
     },
     {
       "fold_index": 10,
@@ -174,8 +174,8 @@
       "valid_end_date": "2020-12-31",
       "n_train": 2638254,
       "n_valid": 120865,
-      "best_iteration": 128,
-      "best_ic": 0.056870391537432854
+      "best_iteration": 195,
+      "best_ic": 0.06104350288807164
     },
     {
       "fold_index": 11,
@@ -188,7 +188,7 @@
       "n_train": 2637328,
       "n_valid": 121695,
       "best_iteration": 2,
-      "best_ic": 0.010776021478496618
+      "best_ic": 0.007579823978645403
     },
     {
       "fold_index": 12,
@@ -200,8 +200,8 @@
       "valid_end_date": "2022-12-30",
       "n_train": 2636082,
       "n_valid": 122871,
-      "best_iteration": 1,
-      "best_ic": 0.002454483366448485
+      "best_iteration": 5,
+      "best_ic": 0.006948994026750994
     },
     {
       "fold_index": 13,
@@ -213,8 +213,8 @@
       "valid_end_date": "2023-12-29",
       "n_train": 2635917,
       "n_valid": 122991,
-      "best_iteration": 73,
-      "best_ic": 0.03476784698099495
+      "best_iteration": 65,
+      "best_ic": 0.03133666202796436
     },
     {
       "fold_index": 14,
@@ -226,8 +226,8 @@
       "valid_end_date": "2024-09-30",
       "n_train": 2666090,
       "n_valid": 92786,
-      "best_iteration": 183,
-      "best_ic": 0.04740538704172533
+      "best_iteration": 262,
+      "best_ic": 0.050513148680087196
     }
   ]
 }

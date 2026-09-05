@@ -92,6 +92,20 @@ cross-fold variance was important *in one era*. That is not the same thing as an
 and the mean alone cannot distinguish them. The per-fold detail lives in
 `models/{version}/shap/per_fold.csv`; the seed schema is unchanged.
 
+> **As built (#55): era blocks, not folds.** The fold boosters do not survive training —
+> `fit_fold` deletes each one and `build_dataset` frees the raw matrix, both deliberately, to keep
+> fifteen fits inside 16 GB. Computing SHAP per refit therefore means retraining fifteen models for
+> a ranking. `shap_report.py` instead splits the date-stratified sample into five contiguous
+> **chronological blocks** of the one shipped booster and takes the std across those. It answers
+> "is this feature important in every era" rather than "in every refit", which is the question the
+> spread was wanted for; what it cannot see is instability that comes from refitting itself.
+> `per_fold.csv` names each block by its date range so the substitution is visible in the artifact.
+>
+> Contributions come from `booster.predict(pred_contrib=True)` rather than the `shap` package. For
+> a LightGBM model `shap.TreeExplainer` delegates to exactly that call — same exact Tree SHAP, no
+> extra dependency, and the `category` dtypes on `sector`/`industry` go through the same path as
+> `predict` instead of needing a numeric re-encode.
+
 ### 3.3 Prune collinear features before the cutoff
 
 SHAP **splits credit among correlated features**. `ret_21d`, `ret_21d_z` and `ret_21d_decile`
