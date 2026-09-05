@@ -9,6 +9,7 @@ import gc
 import logging
 
 import numpy as np
+import pandas as pd
 
 from src.modeling.config import ModelingConfig, load_config
 from src.modeling.data.loader import load_training_frame
@@ -19,6 +20,7 @@ from src.modeling.data.preprocess import (
     transform_target,
 )
 from src.modeling.data.splits import walk_forward_folds
+from src.modeling.evaluate.runner import evaluate as run_evaluate
 from src.modeling.models.lgbm import build_dataset, fit_final, fit_fold
 from src.modeling.models.registry import (
     DBT_MANIFEST,
@@ -35,7 +37,6 @@ logger = logging.getLogger(__name__)
 
 # Subcommands whose implementation lands in a later issue.
 PENDING = {
-    "evaluate": "GH-54",
     "select-features": "GH-55",
     "backtest": "GH-56",
 }
@@ -49,6 +50,11 @@ def _prepare(config: ModelingConfig):
 
     frame, filters = filter_rows(frame, config.target, config.preprocess)
     frame = add_indicators(frame)
+    # Kept before the transform: the fold predictions written below report a decile
+    # spread, and a spread has to be in returns rather than in multiples of the day's
+    # cross-sectional dispersion. The column itself cannot be carried on `frame` — the
+    # leakage guard in `build_features` matches `^fwd_ret` and would reject it.
+    raw_target = frame[config.target].copy()
     frame = transform_target(frame, config.target, config.preprocess)
     matrix, feature_manifest = build_features(frame, config.preprocess)
     logger.info("%s rows x %s features", f"{len(matrix):,}", matrix.shape[1])
@@ -61,12 +67,46 @@ def _prepare(config: ModelingConfig):
         "target": config.target,
         "target_transforms": ["winsorize_1_99_per_date", "standardize_per_date"],
     }
-    return frame, matrix, feature_manifest, preprocess_manifest
+    return frame, matrix, feature_manifest, preprocess_manifest, raw_target
+
+
+def _save_fold_predictions(
+    directory,
+    folds,
+    fits,
+    dates,
+    symbols,
+    raw_target,
+) -> None:
+    """Persist each fold's out-of-sample predictions for the evaluation harness.
+
+    #54 needs per-fold decile spread, Sharpe and baselines, and none of that can be
+    recovered from a fold's mean IC. The alternative — refitting all fifteen folds
+    inside `evaluate` — is a second full training pass for predictions this run has
+    already computed. The target stored here is the raw forward return, not the
+    standardized one the model was fitted on, so a spread reads in return units.
+    """
+    predictions = pd.concat(
+        pd.DataFrame(
+            {
+                "fold_index": fit.fold_index,
+                "symbol": symbols.iloc[fold.valid_idx].to_numpy(),
+                "date": dates.iloc[fold.valid_idx].to_numpy(),
+                "y": raw_target.iloc[fold.valid_idx].to_numpy(),
+                "pred": fit.valid_pred,
+            }
+        )
+        for fold, fit in zip(folds, fits)
+        if len(fit.valid_pred) == len(fold.valid_idx)
+    )
+    path = directory / "fold_predictions.parquet"
+    predictions.to_parquet(path, index=False)
+    logger.info("Wrote %s (%s rows)", path, f"{len(predictions):,}")
 
 
 def train(args: argparse.Namespace) -> None:
     config = load_config(args.config)
-    frame, matrix, feature_manifest, preprocess_manifest = _prepare(config)
+    frame, matrix, feature_manifest, preprocess_manifest, raw_target = _prepare(config)
 
     folds = list(walk_forward_folds(frame, config.splits))
     logger.info(
@@ -79,6 +119,7 @@ def train(args: argparse.Namespace) -> None:
     # Everything still needed after binning, kept as narrow columns rather than by
     # holding the whole frame: the dates for the IC eval, and the pre-holdout mask.
     dates = frame["date"]
+    symbols = frame["symbol"]
     pre_holdout = np.flatnonzero(
         (frame["fold_id"] <= config.splits.eval_end_fold).to_numpy()
     )
@@ -141,6 +182,7 @@ def train(args: argparse.Namespace) -> None:
     directory = save_run(
         config.output_dir, booster, metadata, feature_manifest, preprocess_manifest
     )
+    _save_fold_predictions(directory, folds, best_fits, dates, symbols, raw_target)
     logger.info("Mean validation IC %.4f across %s folds", best_ic, len(best_fits))
     logger.info("Wrote %s", directory)
 
@@ -178,13 +220,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Modelling CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    for name in ("train", "predict", *PENDING):
+    for name in ("train", "evaluate", "predict", *PENDING):
         subparser = subparsers.add_parser(name)
         subparser.add_argument(
             "--config", "-c", required=True, help="Path to run config YAML"
         )
-        if name == "predict":
+        if name in ("predict", "evaluate"):
             subparser.add_argument("--version", default="latest", help="Registry version")
+        if name == "predict":
             subparser.add_argument("--asof", default=None, help="Score as of this date")
 
     args = parser.parse_args()
@@ -192,6 +235,8 @@ def main() -> None:
 
     if args.command == "train":
         train(args)
+    elif args.command == "evaluate":
+        run_evaluate(args.config, args.version)
     elif args.command == "predict":
         predict(args)
     else:

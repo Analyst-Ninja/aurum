@@ -13,7 +13,9 @@ and fast on it — the whole selection loop in #55 assumes tree SHAP.
 """
 
 import logging
+from collections import deque
 from dataclasses import dataclass
+from itertools import count
 from typing import Any
 
 import lightgbm as lgb
@@ -21,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 from src.modeling.data.splits import Fold
+from src.modeling.evaluate.metrics import ic_by_date
 
 logger = logging.getLogger(__name__)
 
@@ -28,37 +31,30 @@ logger = logging.getLogger(__name__)
 def ic_score(y_true: np.ndarray, y_pred: np.ndarray, dates: np.ndarray) -> float:
     """Mean per-date Spearman rank correlation.
 
-    Ranks within each date, then takes one vectorized Pearson correlation on the
-    ranks. Looping ``scipy.stats.spearmanr`` over ~6,600 dates would make early
-    stopping cost more than the fit it is watching.
-
-    Dates whose correlation is undefined — a constant prediction, or a single name —
-    are skipped rather than counted as zero, which would silently drag the mean down
-    in proportion to how thin the panel is.
+    The per-date series lives in `evaluate.metrics.ic_by_date`, because #54 needs the
+    series itself — ICIR is its dispersion, not its mean — and two implementations of
+    the same correlation would eventually disagree about which dates are usable. This
+    is the early-stopping metric; it wants one number.
     """
-    frame = pd.DataFrame({"date": dates, "y": y_true, "p": y_pred}).dropna()
-    grouped = frame.groupby("date", observed=True)
-    ranks = grouped[["y", "p"]].rank()
-    ranks["date"] = frame["date"]
-
-    centred = ranks.groupby("date", observed=True)[["y", "p"]].transform(
-        lambda s: s - s.mean()
-    )
-    products = centred["y"] * centred["p"]
-    numerator = products.groupby(frame["date"], observed=True).sum()
-    denominator = np.sqrt(
-        centred["y"].pow(2).groupby(frame["date"], observed=True).sum()
-        * centred["p"].pow(2).groupby(frame["date"], observed=True).sum()
-    )
-
-    per_date = (numerator / denominator.replace(0.0, np.nan)).dropna()
+    per_date = ic_by_date(y_true, y_pred, dates)
     return float(per_date.mean()) if len(per_date) else 0.0
 
 
-def make_ic_eval(dates: np.ndarray):
-    """Return LightGBM's ``(name, value, is_higher_better)`` eval over `dates`."""
+def make_ic_eval(dates: np.ndarray, history: deque | None = None):
+    """Return LightGBM's ``(name, value, is_higher_better)`` eval over `dates`.
+
+    When `history` is given, each round's validation predictions are pushed onto it.
+    That is the only way to recover out-of-sample fold predictions here: the panel is
+    binned with ``free_raw_data=True`` and the raw matrix is dropped before the folds
+    run, so there is nothing left to call ``booster.predict`` on afterwards. A bounded
+    deque keeps only the rounds early stopping can still choose between.
+    """
+
+    rounds = count(1)
 
     def evaluate(y_pred: np.ndarray, dataset: lgb.Dataset):
+        if history is not None:
+            history.append((next(rounds), y_pred.astype("float32")))
         return "ic", ic_score(dataset.get_label(), y_pred, dates), True
 
     return evaluate
@@ -79,10 +75,30 @@ class FoldFit:
     valid_end_date: str
     n_train: int
     n_valid: int
+    # Out-of-sample predictions on this fold's validation rows, in `fold.valid_idx`
+    # order. #54 needs them: a fold's mean IC is one number, and decile spread, Sharpe
+    # and the baselines cannot be recovered from it. Kept as float32 — 2.4M values
+    # across fifteen folds is ~10MB, against the ~250MB a retained booster would cost.
+    valid_pred: np.ndarray
 
 
 def _bounds(dates: pd.Series) -> tuple[str, str]:
     return str(dates.min().date()), str(dates.max().date())
+
+
+def _predictions_at(
+    history: deque[tuple[int, np.ndarray]], iteration: int
+) -> np.ndarray:
+    """The recorded validation predictions for `iteration`, or the last round's.
+
+    The fallback covers the case where early stopping never fired and the winning round
+    has already been evicted — the model then ran to its cap, and the last round is the
+    one that would be shipped anyway.
+    """
+    for round_index, predictions in history:
+        if round_index == iteration:
+            return predictions
+    return history[-1][1] if history else np.empty(0, dtype="float32")
 
 
 def build_dataset(
@@ -129,13 +145,18 @@ def fit_fold(
     rounds = params.pop("n_estimators")
     stopping = params.pop("early_stopping_rounds")
 
+    # Early stopping cannot pick a round more than `stopping` behind the last one, so a
+    # deque this long always still holds the winner. Bounded on purpose: keeping every
+    # round would be 1,500 copies of the validation predictions.
+    history: deque[tuple[int, np.ndarray]] = deque(maxlen=stopping + 1)
+
     booster = lgb.train(
         params,
         dataset.subset(fold.train_idx),
         num_boost_round=rounds,
         valid_sets=[dataset.subset(fold.valid_idx)],
         valid_names=["valid"],
-        feval=make_ic_eval(valid_dates.to_numpy()),
+        feval=make_ic_eval(valid_dates.to_numpy(), history),
         callbacks=[
             lgb.early_stopping(stopping, first_metric_only=False, verbose=False),
             lgb.log_evaluation(period=100),
@@ -144,6 +165,7 @@ def fit_fold(
 
     best_ic = booster.best_score["valid"]["ic"]
     best_iteration = booster.best_iteration
+    valid_pred = _predictions_at(history, best_iteration)
     train_bounds = _bounds(dates.iloc[fold.train_idx])
     valid_bounds = _bounds(valid_dates)
     logger.info(
@@ -170,6 +192,7 @@ def fit_fold(
         valid_end_date=valid_bounds[1],
         n_train=len(fold.train_idx),
         n_valid=len(fold.valid_idx),
+        valid_pred=valid_pred,
     )
 
 

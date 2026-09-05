@@ -239,6 +239,7 @@ nbs/*
 # change in a run's provenance or performance shows up as a diff in a pull request
 # rather than in a directory nobody opens.
 /models/*/model.txt
+/models/*/fold_predictions.parquet
 /models/*/backtest/positions.parquet
 /models/latest
 /models/.latest.*
