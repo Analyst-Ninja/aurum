@@ -1,0 +1,30 @@
+# Keep the build context small; anything the container needs at runtime arrives
+# as a bind mount (see docker-compose.modeling.yml).
+.git
+.github
+.venv
+.idea
+.vscode
+.claude
+.codex
+.pytest_cache
+.ruff_cache
+.mypy_cache
+**/__pycache__
+*.pyc
+
+# Secrets are passed with env_file, never baked into the image.
+.env
+
+# Host artifacts — mounted, not copied.
+data/
+models/
+logs/
+
+# Not needed to train.
+nbs/
+docs/
+tests/
+src/transformation/
+airflow/
+infra/

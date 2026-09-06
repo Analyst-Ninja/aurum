@@ -19,9 +19,14 @@ Two workflows, one principle: **CI validates everything; anything touching live 
 ## 2. CI workflow
 
 ### `python` job
-- `uv sync` against `pyproject.toml` (Python 3.12)
+- `uv sync --locked --no-build --group modeling` (Python 3.12) — `--locked` fails the build on
+  `pyproject.toml` / `uv.lock` drift
 - **ruff** over `src/` and `main.py` — fails the build on lint errors
-- **pytest** over `tests/` — auto-skips while the directory doesn't exist yet; becomes enforcing the moment tests land
+- **pytest** over `tests/` — a hard gate since [#57](https://github.com/Analyst-Ninja/aurum/issues/57);
+  91 tests cover `src/modeling/`. The install step is `uv sync --locked --no-build --group modeling`,
+  because those tests import `lightgbm`, `pyarrow` and `scikit-learn`. `dbt` keeps its own group and
+  stays out — `dbt-core` pulls an sdist-only dependency that `--no-build` cannot install, while every
+  modeling dependency ships manylinux wheels
 
 ### `sonarqube` job (self-hosted SonarQube)
 - Runs after `python` passes; skipped on fork PRs (no secrets there)
@@ -63,9 +68,10 @@ On `main`: require PRs, require status checks `Lint & test`, `SonarQube analysis
 
 | When | Change |
 |------|--------|
-| Tests exist | pytest becomes hard gate (already automatic); add coverage report → `sonar.python.coverage.reportPaths` |
+| Coverage wanted | add `pytest --cov` and a coverage report → `sonar.python.coverage.reportPaths` |
 | dbt project lands | Add job: `dbt build` against a Snowflake CI schema, `sqlfluff` lint |
-| Docker images per component | Add build+push job (GHCR), compose pulls tagged images |
+| Docker images per component | Add build+push job (GHCR), compose pulls tagged images. The training
+image ([training-container.md](training-container.md)) is built locally for now — CI does not build or push it |
 | Infra grows past local | Revisit: remote state + Snowflake-module apply from CI (rejected for now — see infra-as-code.md) |
 
 ---
