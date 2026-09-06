@@ -144,7 +144,14 @@ AURUM_GIT_SHA=$(git rev-parse HEAD) \
 | Artifacts missing from `models/` after a run | Started with `docker run` instead of compose, so the bind mounts were absent. |
 | `exit code 137`, no traceback | The kernel OOM-killed the process. See §5 — raise the Docker VM to 12 GB. |
 
-## 7. Not included
+## 7. Verified run
+
+`20260906-9a3117a` under `models/` was trained entirely in the container against the host's
+Postgres: 2,896,633 rows loaded, 15 refits, mean validation IC 0.0325, ~9.5 minutes with a
+warm Parquet cache and a peak of ~8.5 GB. The artifacts are owned by the host user, and the
+version id carries the real commit because `AURUM_GIT_SHA` was passed in.
+
+## 8. Not included
 
 No image publishing (no GHCR push job), no Airflow DAG, no serving container, no Terraform
 wiring. `terraform.yml` is path-filtered on `infra/terraform/**`, which does not exist yet —
