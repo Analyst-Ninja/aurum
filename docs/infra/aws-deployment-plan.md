@@ -1,6 +1,10 @@
 # AURUM — AWS Deployment Plan
 
-**Status:** Planned — nothing built yet
+**Status:** Partly built — infrastructure applied and every task verified by hand
+([#73](https://github.com/Analyst-Ninja/aurum/issues/73),
+[#78](https://github.com/Analyst-Ninja/aurum/issues/78) done;
+[#74](https://github.com/Analyst-Ninja/aurum/issues/74) in progress;
+[#75](https://github.com/Analyst-Ninja/aurum/issues/75) not started — **nothing is scheduled yet**)
 **Date:** 2026-09-06
 **Related:** [../operations/infra-as-code.md](../operations/infra-as-code.md) ·
 [../operations/training-container.md](../operations/training-container.md) ·
@@ -25,8 +29,8 @@ This plan moves that to AWS and puts it on a schedule:
 Two constraints shape everything below:
 
 1. **This is a personal project, not a platform.** Every choice takes the smaller option.
-2. **Budget ceiling: $20/month.** This drives the network topology and the DB instance class more
-   than any technical consideration does.
+2. ~~**Budget ceiling: $20/month.**~~ Held until the first backfill, then abandoned for the
+   database — see §5. The topology it produced was kept.
 
 **Not included:** Kafka/MSK, Snowflake, `src/inference/`, `src/mcp/`, Airflow, model serving,
 automatic promotion, multiple environments, Multi-AZ.
@@ -125,35 +129,92 @@ cpu/memory, and which env and secrets they receive.
 
 ## 5. Cost
 
+**The $20/month ceiling was abandoned on 2026-09-06, deliberately.** The original design fit
+~$18.40/mo on a `db.t4g.micro`. During the first backfill that instance's `CPUCreditBalance`
+hit **zero** and it throttled to baseline — roughly a fifth of one core — which stalled
+ingestion and would have made the weekly `dbt build` unusable. The instance was moved to
+`db.m7g.large`, which is non-burstable and therefore has no credits to exhaust.
+
 | Item | ~USD/mo |
 |---|---|
-| RDS `db.t4g.micro`, 30 GB gp3, 7-day backups | 15.10 |
+| RDS `db.m7g.large`, 30 GB gp3, 7-day backups | 118 |
 | EFS (~5 GB, IA after 7 days) | 1.00 |
 | ECR (one image, 3 tags retained) | 0.75 |
-| Fargate — daily ingest, monthly EDGAR, weekly dbt + train (Spot where safe) | 0.80 |
+| Fargate — daily ingest, monthly EDGAR, weekly dbt + train (mostly Spot) | 0.80 |
 | CloudWatch Logs (7-day retention) | 0.50 |
-| Public IPv4 hours (billed only while a task runs) | 0.20 |
+| Public IPv4 hours (tasks, plus the RDS public address) | 0.60 |
 | Step Functions, Scheduler, SNS, SSM, S3 state | ~0.05 |
-| **Total** | **~18.40** |
+| **Total** | **~122** |
 
-RDS is 82 % of the bill. Two levers not assumed here: if the AWS account is under 12 months old,
-`db.t4g.micro` + 20 GB is **free tier** and the total drops to ~$5; a 1-year no-upfront Reserved
-Instance cuts the instance line ~35 %.
+The architecture choices made *for* the old budget all still stand on their own merits and were
+not reverted: no NAT gateway, no interface VPC endpoints, default VPC, SSM Parameter Store
+instead of Secrets Manager, one image, flat Terraform. Together they still avoid ~$61/mo, and
+none of them cost anything in capability.
 
-### The `db.t4g.micro` trade-off
+`db_instance_class` is a variable. Dropping to `db.t4g.small` (~$24/mo, total ~$30) is one
+apply if the weekly build turns out not to need the headroom — but note it reintroduces credit
+burn, which is what caused the original stall.
 
-`db.t4g.micro` is **2 burstable vCPU / 1 GB RAM**. That is small for this warehouse: the silver
-intermediate models run window functions over a 900-day lookback per symbol across 503 symbols, and
-with 1 GB they spill to disk rather than sorting in memory.
+### Network exposure
 
-Stated honestly: **it will work, but the one-off full `dbt build` in Part 3 will take hours rather
-than minutes.** The weekly incremental build is bounded by `window_rewrite_days: 90` and should stay
-in the minutes. Mitigation is `threads: 2` in the container's dbt profile instead of the host
-profile's 4.
+RDS is **publicly accessible and its security group admits `0.0.0.0/0` on 5432**, so the
+operator can connect from a laptop. This was a deliberate choice on 2026-09-06 over the two
+alternatives that keep the database private:
 
-`instance_class` is a one-line change with a few minutes of downtime, so **start on micro and resize
-to `db.t4g.small` if the weekly build hurts.** That is +$12/mo and breaks the ceiling — a decision to
-make with real numbers from Part 3, not now.
+| Option | Why it was not taken |
+|---|---|
+| Tailscale subnet router on a `t4g.nano` in the VPC | Needs a Tailscale auth key and one more instance (~$3/mo). Tailscale's own `100.64.0.0/10` addresses cannot be used in a security group — they are CGNAT and exist only inside the tailnet, so a rule naming one matches nothing |
+| SSM Session Manager port-forward via a `t4g.nano` | No inbound ports at all, works anywhere with AWS credentials, but also one more instance |
+
+What stands between the internet and the data is the master password — 32 random characters,
+generated at apply time and held in SSM as a `SecureString`. Connections negotiate TLS
+(`sslmode=prefer` in libpq, which RDS accepts). Narrowing `db_ingress_cidrs` to a `/32`, or
+setting `db_publicly_accessible = false` and using one of the options above, is a single
+variable change.
+
+## 5.1 What the first apply actually found
+
+Applied 2026-09-06 to account `851459781998`, `us-east-1`: **32 resources**. Four things
+differed from the plan, all of them discovered rather than predicted.
+
+**SEC does not block the Fargate IP.** This was the single largest unknown, carried as a gate
+in #74 and inherited from `operations/infra-as-code.md` §1, which asserted "SEC blocks cloud
+IPs — this stays a local process by design". That statement was never measured and is wrong
+here. Probed from a Fargate task, egress IP `32.198.113.156`, with the honest `SEC_USER_AGENT`
+from SSM:
+
+| Endpoint | Result |
+|---|---|
+| `www.sec.gov/cgi-bin/browse-edgar` | **200**, 16,501 bytes |
+| `data.sec.gov/submissions/CIK0000320193.json` | **200**, 164,121 bytes |
+| `data.sec.gov/api/xbrl/companyconcept/…` | **200**, 2,252 bytes |
+
+What SEC enforces is the honest `User-Agent` and the 10 req/s cap, both of which the ingestion
+framework already respects. The monthly EDGAR state machine in #75 is therefore built as
+designed, with no local fallback.
+
+**One subnet per AZ, not every subnet.** This account's default VPC has **11** subnets — two in
+five of the six AZs. EFS permits exactly one mount target per availability zone, so the first
+apply would have got partway through and died with `MountTargetConflict`. The `aws_subnets` data
+source now filters on `default-for-az`, giving six.
+
+**`engine_version = "17"` resolved to 17.9.** The major-only pin behaved as intended: no exact
+minor to drift against `auto_minor_version_upgrade`.
+
+**The task definitions had to be applied twice.** `var.image_tag` defaults to `latest`, and ECR
+had no such tag until `make push` ran. Apply, push, then re-apply with
+`-var="image_tag=$(git rev-parse --short HEAD)"` — or pass the tag on the first apply if the
+image is already there.
+
+### Verified by hand
+
+| Check | Result |
+|---|---|
+| `dbt debug` on Fargate → RDS, credentials from SSM only | **All checks passed**, exit 0 |
+| Image pull with `assignPublicIp=ENABLED`, no NAT | works |
+| `/app/models` and `/app/data` are separate directories | confirmed — two EFS access points |
+| EFS bootstrap wrote the base config and seed | `/app/models/configs/`, `/app/models/seeds/` |
+| RDS `publicly_accessible` / `deletion_protection` | `False` / `True` |
 
 ## 6. Constraints found in the code
 

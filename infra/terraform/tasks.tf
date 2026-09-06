@@ -21,10 +21,25 @@ locals {
     { name = "AURUM_GIT_SHA", value = var.image_tag },
   ]
 
-  db_secrets = [
+  # SEC_USER_AGENT is not EDGAR-only. src/ingestion/datasources/api/yahoo/ohlcv.py calls
+  # get_sec_user_agent() in its constructor, because the S&P 500 universe is scraped from
+  # Wikipedia — which, like SEC, refuses anonymous traffic. Scoping this to the EDGAR task
+  # made the market feed die before it read a single row. Every task gets it.
+  secrets = [
     { name = "AURUM_USERNAME", valueFrom = aws_ssm_parameter.db_username.arn },
     { name = "AURUM_PASSWORD", valueFrom = aws_ssm_parameter.db_password.arn },
+    { name = "SEC_USER_AGENT", valueFrom = aws_ssm_parameter.sec_user_agent.arn },
   ]
+
+  # Modelling configs live on EFS, not in the image, and that is load-bearing.
+  # select-features writes the generated <config>_narrow.yaml *beside* the base config,
+  # and that path is derived rather than configurable — a config baked into the image
+  # would take the generated narrow config down with it when the task exits.
+  # docker/bootstrap_efs.sh puts them there.
+  base_config   = "/app/models/configs/lgbm_xs_excess_5d.yaml"
+  narrow_config = "/app/models/configs/lgbm_xs_excess_5d_narrow.yaml"
+  modeling_cli  = "python -m src.modeling.cli"
+  dbt_project   = "/app/src/transformation/aurum_dwh"
 
   log_configuration = {
     logDriver = "awslogs"
@@ -45,14 +60,23 @@ locals {
   ]
 }
 
-# Daily. Incremental from the watermark — -f False is the whole point, a full load would
-# re-pull 2000-to-today every night.
+# Daily. Both market feeds, incremental from their watermarks — -f False is the whole
+# point, a full load would re-pull 2000-to-today every night.
+#
+# Sequential, not parallel. Both feeds hit Yahoo, and the configs already self-throttle
+# (batch_size 100, sleep_seconds 1); running them concurrently would double the request
+# rate for no useful gain. The `&&` also means a 1d failure stops the 1m run rather than
+# burying it in the same log.
+#
+# Sized for the daily increments, not for a first full load. Backfilling either feed needs
+# a task-level override — 1024/2048 was OOM-killed (exit 137) doing the 1d history, and
+# the first 1m load is ~5.9M rows (503 symbols x ~30 days of retention x 390 minutes).
 resource "aws_ecs_task_definition" "ingest_market" {
   family                   = "${var.project}-ingest-market"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 1024
-  memory                   = 2048
+  cpu                      = 2048
+  memory                   = 8192
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
 
@@ -89,17 +113,37 @@ resource "aws_ecs_task_definition" "ingest_market" {
     image       = local.image
     essential   = true
     environment = local.environment
-    secrets     = local.db_secrets
+    secrets     = local.secrets
     mountPoints = local.mount_points
     logConfiguration = merge(local.log_configuration, {
       options = merge(local.log_configuration.options, { "awslogs-stream-prefix" = "ingest-market" })
     })
-    command = ["ingest", "-c", "src/ingestion/configs/yahoo/ohlcv_1d.yaml", "-f", "False"]
+    command = ["sh", "-c", join(" && ", [
+      "python -m src.ingestion.cli -c src/ingestion/configs/yahoo/ohlcv_1d.yaml -f False",
+      "python -m src.ingestion.cli -c src/ingestion/configs/yahoo/ohlcv_1min.yaml -f False",
+    ])]
   }])
 }
 
-# Monthly. The command is overridden per invocation — GH-75 maps over the six statement
-# configs serially, because EDGAR caps at 10 requests/second.
+# Monthly. All six statement configs in one task, sequentially.
+#
+# A task definition's `command` is only a default — `run-task --overrides` and Step
+# Functions `containerOverrides` replace it wholesale — but a default that ingests one of
+# six statement types is a trap: running this definition unqualified would silently load
+# income_stmts_quarterly and nothing else.
+#
+# Serial, and deliberately not parallel. SEC caps at 10 requests/second and the limiter is
+# per-process, so six concurrent configs would issue roughly six times the intended rate.
+# All six take ~27 minutes together.
+#
+# WARNING — this re-pulls the full history every run, and the sink appends.
+# The EDGAR configs carry no watermark_group_by/watermark_date_column, and their
+# cols_for_pk is (SYMBOL, QTR, CONCEPT) with no date column at all, so `-f False` has
+# nothing to resume from. PostgresDataSource.write_data uses to_sql(if_exists="append")
+# with no unique index on MD5_HASH, so a second monthly run duplicates every row —
+# ~1.9M the first time, growing linearly. Bronze deduplicates downstream, so the
+# warehouse stays correct, but the landing tables do not. This must be fixed before the
+# monthly schedule in GH-75 is switched on.
 resource "aws_ecs_task_definition" "ingest_edgar" {
   family                   = "${var.project}-ingest-edgar"
   requires_compatibilities = ["FARGATE"]
@@ -142,17 +186,26 @@ resource "aws_ecs_task_definition" "ingest_edgar" {
     image       = local.image
     essential   = true
     environment = local.environment
-    # SEC returns 403 without an honest User-Agent, so this task gets the extra secret.
-    secrets     = concat(local.db_secrets, [{ name = "SEC_USER_AGENT", valueFrom = aws_ssm_parameter.sec_user_agent.arn }])
+    secrets     = local.secrets
     mountPoints = local.mount_points
     logConfiguration = merge(local.log_configuration, {
       options = merge(local.log_configuration.options, { "awslogs-stream-prefix" = "ingest-edgar" })
     })
-    command = ["ingest", "-c", "src/ingestion/configs/edgar/income_statements_quarterly.yaml"]
+    command = ["sh", "-c", join(" && ", [
+      for config in [
+        "income_statements_quarterly",
+        "income_statements_yearly",
+        "balance_sheet_statements_quarterly",
+        "balance_sheet_statements_yearly",
+        "cashflow_statements_quarterly",
+        "cashflow_statements_yearly",
+      ] : "python -m src.ingestion.cli -c src/ingestion/configs/edgar/${config}.yaml"
+    ])]
   }])
 }
 
-# Weekly, before training. Command overridden: `dbt seed`, then `dbt build`.
+# Weekly, before training. Seed first, then build: three seeds feed models downstream,
+# and mart_feature_summary reads the seeded Postgres table rather than the CSV.
 resource "aws_ecs_task_definition" "dbt" {
   family                   = "${var.project}-dbt"
   requires_compatibilities = ["FARGATE"]
@@ -195,18 +248,32 @@ resource "aws_ecs_task_definition" "dbt" {
     image       = local.image
     essential   = true
     environment = local.environment
-    secrets     = local.db_secrets
+    secrets     = local.secrets
     mountPoints = local.mount_points
     logConfiguration = merge(local.log_configuration, {
       options = merge(local.log_configuration.options, { "awslogs-stream-prefix" = "dbt" })
     })
-    command = ["dbt", "build"]
+    command = ["sh", "-c", "cd ${local.dbt_project} && dbt seed && dbt build"]
   }])
 }
 
-# Weekly, after dbt. 16 GB because the training panel is ~2.9M x 228 and 8 GB gets
-# OOM-killed with exit 137 (docs/operations/training-container.md §5). This is the one task
-# that must NOT run on Spot: an interruption at minute 28 of a 30-minute fit wastes it.
+# Weekly, after dbt. The whole modelling loop, in the order docs/modeling/pipeline-runbook.md
+# describes: train on every feature, evaluate, rank features with SHAP, push the ranking into
+# the warehouse, retrain narrowed, evaluate, compare the two on the holdout, backtest.
+#
+# The comparison is the point. Feature selection is a hypothesis, not an improvement — the
+# narrowed model has to match or beat the full one on holdout ICIR *and* decile spread. That
+# verdict lands in comparison.json; nothing is promoted on the strength of it, because
+# promotion stays a human decision (docs/modeling/training-and-retraining.md).
+#
+# --version-suffix is required, not cosmetic (GH-78): both fits run on the same day from the
+# same image, so without it they share a version id and the narrowed run overwrites the
+# baseline it is meant to be measured against. The suffix also publishes models/latest-full
+# and models/latest-narrow, which is how the later steps name their inputs.
+#
+# 16 GB because the training panel is ~2.9M x 228 and 8 GB gets OOM-killed with exit 137
+# (docs/operations/training-container.md §5). This is the one task that must NOT run on Spot:
+# an interruption at minute 28 of a 30-minute fit wastes it.
 resource "aws_ecs_task_definition" "train" {
   family                   = "${var.project}-train"
   requires_compatibilities = ["FARGATE"]
@@ -249,11 +316,29 @@ resource "aws_ecs_task_definition" "train" {
     image       = local.image
     essential   = true
     environment = local.environment
-    secrets     = local.db_secrets
+    secrets     = local.secrets
     mountPoints = local.mount_points
     logConfiguration = merge(local.log_configuration, {
       options = merge(local.log_configuration.options, { "awslogs-stream-prefix" = "train" })
     })
-    command = ["model", "train", "-c", "src/modeling/configs/lgbm_xs_excess_5d.yaml"]
+    command = ["sh", "-c", join(" && ", [
+      # 1. Fit on every feature the deny-lists leave.
+      "${local.modeling_cli} train -c ${local.base_config} --version-suffix full",
+      # 2. Does it rank? IC, ICIR, decile spread against four baselines.
+      "${local.modeling_cli} evaluate -c ${local.base_config} --version latest-full",
+      # 3. TreeSHAP ranking -> selected_features.csv + the generated narrow config.
+      "${local.modeling_cli} select-features -c ${local.base_config} --version latest-full",
+      # 4. Push the ranking into the warehouse. A subshell so the cd does not leak into
+      #    the later steps, and seed before build because the mart reads the table.
+      "(cp /app/models/seeds/selected_features.csv ${local.dbt_project}/seeds/ && cd ${local.dbt_project} && dbt seed --select selected_features && dbt build --select mart_feature_summary)",
+      # 5. Refit on the ~40 survivors. Same command as step 1, different config.
+      "${local.modeling_cli} train -c ${local.narrow_config} --version-suffix narrow",
+      # 6. Same metrics, so the two are comparable.
+      "${local.modeling_cli} evaluate -c ${local.narrow_config} --version latest-narrow",
+      # 7. The gate: writes comparison.json with a narrowed_wins verdict. Reports only.
+      "${local.modeling_cli} compare -c ${local.narrow_config} --version latest-narrow --baseline latest-full",
+      # 8. Does it make money? Overlapping tranches, cost sweep, randomization checks.
+      "${local.modeling_cli} backtest -c ${local.narrow_config} --version latest-narrow",
+    ])]
   }])
 }

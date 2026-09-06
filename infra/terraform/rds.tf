@@ -4,10 +4,7 @@
 # It is ~82% of the monthly bill, which is why it is a db.t4g.micro and not something
 # comfortable. See docs/infra/aws-deployment-plan.md §5 for the trade-off in full.
 
-# The default VPC has ONLY public subnets, so the subnet group is built from them. That
-# looks wrong and is not: `publicly_accessible = false` below means the instance gets no
-# public IP, so it is reachable only from inside the VPC, and only through the `data`
-# security group — which admits the ECS task group and nothing else.
+# The default VPC has ONLY public subnets, so the subnet group is built from them.
 resource "aws_db_subnet_group" "aurum" {
   name       = "${var.project}-db"
   subnet_ids = data.aws_subnets.default.ids
@@ -60,7 +57,10 @@ resource "aws_db_instance" "aurum" {
 
   db_subnet_group_name   = aws_db_subnet_group.aurum.name
   vpc_security_group_ids = [aws_security_group.data.id]
-  publicly_accessible    = false
+
+  # Public IP so the operator can connect from a laptop. Who may actually connect is
+  # decided by the `data` security group's 5432 rule, not by this flag.
+  publicly_accessible = var.db_publicly_accessible
 
   parameter_group_name = aws_db_parameter_group.aurum.name
 
@@ -68,6 +68,11 @@ resource "aws_db_instance" "aurum" {
   backup_retention_period    = 7
   auto_minor_version_upgrade = true
   deletion_protection        = true
+
+  # Without this a change to instance_class waits for the next maintenance window, so
+  # `terraform apply` returns "success" and nothing actually resizes. There is no
+  # production traffic to protect here — resizes should happen when asked for.
+  apply_immediately = true
 
   # A personal project does not need a final snapshot ceremony on teardown, but
   # deletion_protection above means teardown is deliberate either way.

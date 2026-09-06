@@ -6,3 +6,7 @@
 # Real variable values, including secrets. terraform.tfvars.example is the template.
 *.tfvars
 !*.tfvars.example
+
+# Saved plans embed variable values, including the RDS password.
+tfplan
+*.tfplan
