@@ -39,3 +39,18 @@ output "run_task_network_configuration" {
   description = "Ready-made --network-configuration argument for `aws ecs run-task`."
   value       = "awsvpcConfiguration={subnets=[${join(",", data.aws_subnets.default.ids)}],securityGroups=[${aws_security_group.tasks.id}],assignPublicIp=ENABLED}"
 }
+
+output "sfn_daily_market_arn" {
+  description = "Weeknight market ingest + dbt build. `aws stepfunctions start-execution --state-machine-arn` this to force a run."
+  value       = aws_sfn_state_machine.daily_market.arn
+}
+
+output "sfn_semimonthly_edgar_arn" {
+  description = "EDGAR truncate-and-reload, 1st and 15th."
+  value       = aws_sfn_state_machine.semimonthly_edgar.arn
+}
+
+output "sfn_monthly_train_arn" {
+  description = "The full modelling loop, 1st of the month."
+  value       = aws_sfn_state_machine.monthly_train.arn
+}

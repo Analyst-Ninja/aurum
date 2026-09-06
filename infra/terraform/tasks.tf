@@ -125,7 +125,7 @@ resource "aws_ecs_task_definition" "ingest_market" {
   }])
 }
 
-# Monthly. All six statement configs in one task, sequentially.
+# 1st and 15th. All six statement configs in one task, sequentially.
 #
 # A task definition's `command` is only a default — `run-task --overrides` and Step
 # Functions `containerOverrides` replace it wholesale — but a default that ingests one of
@@ -136,14 +136,20 @@ resource "aws_ecs_task_definition" "ingest_market" {
 # per-process, so six concurrent configs would issue roughly six times the intended rate.
 # All six take ~27 minutes together.
 #
-# WARNING — this re-pulls the full history every run, and the sink appends.
-# The EDGAR configs carry no watermark_group_by/watermark_date_column, and their
-# cols_for_pk is (SYMBOL, QTR, CONCEPT) with no date column at all, so `-f False` has
-# nothing to resume from. PostgresDataSource.write_data uses to_sql(if_exists="append")
-# with no unique index on MD5_HASH, so a second monthly run duplicates every row —
-# ~1.9M the first time, growing linearly. Bronze deduplicates downstream, so the
-# warehouse stays correct, but the landing tables do not. This must be fixed before the
-# monthly schedule in GH-75 is switched on.
+# Truncate-then-load, one table at a time. This re-pulls the full history every run and
+# the sink appends: the EDGAR configs carry no watermark_group_by/watermark_date_column,
+# and their cols_for_pk is (SYMBOL, QTR, CONCEPT) with no date column at all, so `-f False`
+# has nothing to resume from. PostgresDataSource.write_data uses to_sql(if_exists="append")
+# with no unique index on MD5_HASH, so without the truncate a second run duplicates every
+# row — ~1.9M each time, growing linearly (GH-75).
+#
+# Truncating makes the landing table match the contract the config already declares:
+# `full_load: true` means one full snapshot per run.
+#
+# Per config rather than all six up front, deliberately. A failure partway through then
+# leaves at most ONE table empty until the next run, instead of all six — and the daily
+# dbt build at 22:30 would otherwise turn a 06:00 EDGAR failure into a mart with no
+# fundamentals at all.
 resource "aws_ecs_task_definition" "ingest_edgar" {
   family                   = "${var.project}-ingest-edgar"
   requires_compatibilities = ["FARGATE"]
@@ -191,7 +197,7 @@ resource "aws_ecs_task_definition" "ingest_edgar" {
     logConfiguration = merge(local.log_configuration, {
       options = merge(local.log_configuration.options, { "awslogs-stream-prefix" = "ingest-edgar" })
     })
-    command = ["sh", "-c", join(" && ", [
+    command = ["sh", "-c", join(" && ", flatten([
       for config in [
         "income_statements_quarterly",
         "income_statements_yearly",
@@ -199,13 +205,20 @@ resource "aws_ecs_task_definition" "ingest_edgar" {
         "balance_sheet_statements_yearly",
         "cashflow_statements_quarterly",
         "cashflow_statements_yearly",
-      ] : "python -m src.ingestion.cli -c src/ingestion/configs/edgar/${config}.yaml"
-    ])]
+        ] : [
+        "python -m src.ingestion.truncate -c src/ingestion/configs/edgar/${config}.yaml",
+        "python -m src.ingestion.cli -c src/ingestion/configs/edgar/${config}.yaml",
+      ]
+    ]))]
   }])
 }
 
-# Weekly, before training. Seed first, then build: three seeds feed models downstream,
-# and mart_feature_summary reads the seeded Postgres table rather than the CSV.
+# Every weeknight, immediately after the market ingest that feeds it. gold.mart_features is
+# only as fresh as the last build, and everything downstream reads it — so this rides the
+# daily state machine rather than sitting in front of the monthly training run.
+#
+# Seed first, then build: three seeds feed models downstream, and mart_feature_summary reads
+# the seeded Postgres table rather than the CSV.
 resource "aws_ecs_task_definition" "dbt" {
   family                   = "${var.project}-dbt"
   requires_compatibilities = ["FARGATE"]
@@ -257,9 +270,13 @@ resource "aws_ecs_task_definition" "dbt" {
   }])
 }
 
-# Weekly, after dbt. The whole modelling loop, in the order docs/modeling/pipeline-runbook.md
+# Monthly, on the 1st at 02:00 UTC. The whole modelling loop, in the order
+# docs/modeling/pipeline-runbook.md
 # describes: train on every feature, evaluate, rank features with SHAP, push the ranking into
 # the warehouse, retrain narrowed, evaluate, compare the two on the holdout, backtest.
+#
+# It reads gold.mart_features, which the previous weeknight's dbt build produced — running it
+# before that day's own ingest is deliberate, not an oversight (aws-deployment-plan.md §2.1).
 #
 # The comparison is the point. Feature selection is a hypothesis, not an improvement — the
 # narrowed model has to match or beat the full one on holdout ICIR *and* decile spread. That
@@ -272,8 +289,9 @@ resource "aws_ecs_task_definition" "dbt" {
 # and models/latest-narrow, which is how the later steps name their inputs.
 #
 # 16 GB because the training panel is ~2.9M x 228 and 8 GB gets OOM-killed with exit 137
-# (docs/operations/training-container.md §5). This is the one task that must NOT run on Spot:
-# an interruption at minute 28 of a 30-minute fit wastes it.
+# (docs/operations/training-container.md §5). Its Step Functions state carries no Retry: a
+# one-hour fit that OOMs does not succeed on a blind second attempt, and this is the most
+# expensive task in the account.
 resource "aws_ecs_task_definition" "train" {
   family                   = "${var.project}-train"
   requires_compatibilities = ["FARGATE"]

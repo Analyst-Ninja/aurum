@@ -69,3 +69,14 @@ variable "log_retention_days" {
   type        = number
   default     = 7
 }
+
+variable "alert_email" {
+  description = "Address the Step Functions Catch states and the budget alarms publish to. No default on purpose — an unset address means failures are silent. The SNS subscription lands as `pending confirmation`; the link in the confirmation email has to be clicked once."
+  type        = string
+}
+
+variable "monthly_budget_usd" {
+  description = "AWS Budgets ceiling, alerting at 80% actual and 100% forecasted. Defaults to 150, not the 20 the original plan carried: that ceiling was abandoned on 2026-09-06 when RDS moved to db.m7g.large, and a budget below steady-state cost alerts every month and gets ignored."
+  type        = number
+  default     = 150
+}

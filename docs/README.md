@@ -18,7 +18,7 @@ docs/
 │   └── rationale/    why each model and seed is shaped the way it is
 ├── modeling/         src/modeling — design, in flight (Phase 6)
 ├── operations/       CI/CD and infrastructure
-├── infra/            the AWS deployment — planned, not built
+├── infra/            the AWS deployment — built and running on a schedule
 └── design-specs/     dated design records, kept for history
 ```
 
@@ -93,7 +93,7 @@ placeholder; these are the specification the code will be reviewed against.
 
 | Doc | Content |
 |---|---|
-| [`aws-deployment-plan.md`](infra/aws-deployment-plan.md) | The AWS deployment **as planned**: RDS Postgres, one image on ECR run as ECS Fargate tasks, Step Functions schedules, Terraform. Carries the $20/month budget analysis, the `db.t4g.micro` trade-off, and the code constraints that shape it. Tracked as epic [#71](https://github.com/Analyst-Ninja/aurum/issues/71) |
+| [`aws-deployment-plan.md`](infra/aws-deployment-plan.md) | The AWS deployment **as built**: RDS Postgres, one image on ECR run as four ECS Fargate task definitions, three Step Functions state machines on EventBridge Scheduler crons, Terraform. Carries the schedule DAG, why the ten-state modelling chain collapsed into one task, the abandoned $20/month ceiling, the code constraints that shape it, and a troubleshooting table. Epic [#71](https://github.com/Analyst-Ninja/aurum/issues/71) |
 
 Read this as a **plan**, not as current state — nothing in it is built yet. It supersedes two
 non-goals recorded in [`operations/infra-as-code.md`](operations/infra-as-code.md) §1.

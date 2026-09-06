@@ -13,7 +13,15 @@ What actually exists and runs today:
 - `src/feed/`, `src/inference/`, `src/mcp/`, `airflow/`, `infra/` — empty `__init__.py` placeholders. `main.py` is empty.
 - **Phase 6 (modeling) is built** (#51–#57). `docs/modeling/` (6 docs) specifies preprocessing, purged walk-forward training, SHAP selection, backtesting and the retraining policy; tracked as epic [#50](https://github.com/Analyst-Ninja/aurum/issues/50) with children #51–#57. Primary target `fwd_ret_5d_excess`, LightGBM regression, flat-file registry under `models/`. `docs/modeling/pipeline-runbook.md` walks the 11-step run.
 - `tests/` holds 95 unit tests over `src/modeling/` and `src/ingestion/`, and the pytest step in CI is live (GH-57). `docker/aurum.Dockerfile` + `docker/entrypoint.sh` + `docker-compose.modeling.yml` run **all three** workloads — ingestion, dbt and modelling — against a pinned dependency set. No Airflow/MLflow/serving.
-- **AWS deployment is planned, not built** — epic [#71](https://github.com/Analyst-Ninja/aurum/issues/71): RDS Postgres, one image on ECR run as ECS Fargate tasks, Step Functions schedules (market daily, EDGAR monthly, dbt+train weekly), Terraform in `infra/terraform/`. `docs/infra/aws-deployment-plan.md` is the plan; `infra/` is still an empty placeholder.
+- **AWS deployment is built and running on a schedule** — epic [#71](https://github.com/Analyst-Ninja/aurum/issues/71): RDS Postgres, one image on ECR run as four ECS Fargate task definitions, three Step Functions state machines on EventBridge Scheduler crons. Terraform in `infra/terraform/` (`main.tf`, `rds.tf`, `tasks.tf`, `sfn.tf`, `outputs.tf`). `docs/infra/aws-deployment-plan.md` documents it as built, with the schedule DAG and a troubleshooting table.
+
+  | State machine | Cron (UTC) | States |
+  |---|---|---|
+  | `aurum-daily-market` | `cron(30 22 ? * MON-FRI *)` | `ingest-market` → `dbt` |
+  | `aurum-semimonthly-edgar` | `cron(0 6 1,15 * ? *)` | `ingest-edgar` |
+  | `aurum-monthly-train` | `cron(0 2 1 * ? *)` | `train` |
+
+  Each task definition's `command` holds the **whole** logical workflow (`sh -c "a && b && c"`), so the state machines are one or two states rather than the ten the original plan described — see `docs/infra/aws-deployment-plan.md` §2.3 for the trade. `dbt` and `train` deliberately stay separate states: a dbt failure must never reach training. Every ECS state is `ecs:runTask.sync`, which fails on a non-zero container exit, so `src/ingestion/cli.py`'s `sys.exit(1)` is load-bearing. Failures publish to SNS **and** end the execution red.
 
 `README.md` ("Current state") and `docs/ingestion/datasource-framework.md` describe the code as it is; `docs/architecture/TECHNICAL_SPEC.md` describes the target. `repo_structure.md` is an aspirational tree and does not match `src/`.
 
@@ -34,6 +42,10 @@ uv run python -m src.ingestion.cli -c src/ingestion/configs/yahoo/ohlcv_1d.yaml 
 uv run python -m src.ingestion.cli -c src/ingestion/configs/edgar/income_statements_quarterly.yaml -d 2026-01-01
 #   -c/--config  path to feed YAML     -d/--run_date  default today
 #   -f/--full_load  True|False, default True — False resumes from the watermarks
+
+# empty a feed's landing table before a full reload (GH-75). Only the EDGAR task uses it,
+# once per config, immediately before that config's load.
+uv run python -m src.ingestion.truncate -c src/ingestion/configs/edgar/income_statements_quarterly.yaml
 
 # dbt (project dir must be the dbt project root)
 # dbt lives in the `dbt` dependency group, NOT the default sync — `--group dbt` is required on every call
@@ -91,6 +103,7 @@ configs/*.yaml ──▶ runner.run_feed() ──▶ factory.create_feed()  ─�
 - **Incremental by watermark** — when `full_load` resolves to `False`, the feed calls `output_ds.get_watermarks(group_by, date_column)`, which `SELECT MAX(date) GROUP BY symbol` on the landing table; the datasource then starts each symbol the day after its watermark. A missing table returns `{}` (first run) rather than erroring. Don't add full-refresh paths. `-f/--full_load` is an explicit `True|False` and **defaults to `True`**, so incremental runs need `-f False`; the YAML's `full_load` key is not read.
 - **Column convention: uppercase.** Feeds uppercase every column in `process()`; configs, `cols_for_pk`, and watermark columns are all uppercase (`SYMBOL`, `DATE`, `QTR`). Postgres identifiers are quoted, so case matters.
 - **Deterministic PK** — `_add_write_metadata` md5s the `cols_for_pk` values into the `primary_key` column. Both keys are required in the output config or the run fails.
+- **The sink appends and does not deduplicate.** `Database.write_data` is `to_sql(if_exists="append")` and there is no unique index on `MD5_HASH`. For watermarked feeds that is fine — they only fetch new rows. The EDGAR feeds are `full_load: true` with no watermark columns, so every run re-pulls the whole history and would duplicate ~1.9M rows; `src/ingestion/truncate.py` empties each landing table first, which makes it match the `full_load` contract the config already declares. Run it **per config**, not once for all six: a failure halfway through then leaves one table empty rather than all six.
 - Config secrets are **env var *names***, not values: `username: "AURUM_USERNAME"` is `os.getenv`-ed at connect time from `.env` (`HOST`, `PORT`, `AURUM_USERNAME`, `AURUM_PASSWORD`, `SEC_USER_AGENT`).
 
 Adding a source: new class in `datasources/api/<vendor>/` with `@register_datasource`, new feed in `feed/` with `@register_feed`, new YAML in `configs/<vendor>/`, then import both in `runner.py`.
