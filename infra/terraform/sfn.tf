@@ -268,9 +268,28 @@ resource "aws_sfn_state_machine" "semimonthly_edgar" {
   role_arn = aws_iam_role.sfn.arn
 
   definition = jsonencode({
-    Comment = "EDGAR financial statements: truncate and reload all six configs, then rebuild the warehouse."
-    StartAt = "IngestEdgar"
+    Comment = "Market prices, then EDGAR financial statements, then the warehouse build over both."
+    StartAt = "IngestMarket"
     States = {
+      # Prices first, fundamentals second, build last. The silver and intermediate models
+      # join fundamentals onto the price panel, so building with fresh statements against
+      # a stale price history would produce a mart whose two halves are as-of different
+      # dates. Ingesting both before the single build keeps them aligned.
+      #
+      # This duplicates the 22:30 market ingest on the 1st and 15th, harmlessly: both feeds
+      # resume from `SELECT MAX(date) GROUP BY symbol`, so the later run simply picks up
+      # whatever the earlier one did not. On a weekend the feeds return SUCCESS_NO_DATA,
+      # which is not a failure.
+      IngestMarket = {
+        Type           = "Task"
+        Resource       = "arn:aws:states:::ecs:runTask.sync"
+        Parameters     = local.sfn_run_task_parameters["ingest_market"]
+        TimeoutSeconds = local.sfn_task_states.ingest_market.timeout
+        Retry          = local.sfn_task_states.ingest_market.retry
+        Catch          = local.sfn_catch
+        ResultPath     = null
+        Next           = "IngestEdgar"
+      }
       IngestEdgar = {
         Type           = "Task"
         Resource       = "arn:aws:states:::ecs:runTask.sync"
@@ -281,10 +300,14 @@ resource "aws_sfn_state_machine" "semimonthly_edgar" {
         ResultPath     = null
         Next           = "Dbt"
       }
-      # Every ingest is followed by the build that consumes it — the same edge the daily
-      # machine has. Without this, fundamentals landed on a Saturday the 15th would not
-      # reach gold.mart_features until the Monday 22:30 run, ~64 hours later, because the
-      # daily machine is MON-FRI and this one is not.
+      # The same aurum-dbt task definition the daily machine uses — seed, build, 237 tests.
+      # Not a reduced `dbt run`: this is the build that lands two weeks of fundamentals, so
+      # it is the one that most needs the tests.
+      #
+      # It has to live in this machine rather than borrowing the daily one: this cron fires
+      # on any day of the week and the daily machine is MON-FRI, so fundamentals landed on
+      # a Saturday the 15th would otherwise not reach gold.mart_features until Monday
+      # 22:30 — about 64 hours later.
       Dbt = {
         Type           = "Task"
         Resource       = "arn:aws:states:::ecs:runTask.sync"

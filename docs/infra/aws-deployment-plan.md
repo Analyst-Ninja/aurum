@@ -41,7 +41,7 @@ automatic promotion, multiple environments, Multi-AZ.
 | State machine | Cron (UTC) | States |
 |---|---|---|
 | `aurum-daily-market` | `cron(30 22 ? * MON-FRI *)` | `ingest-market` → `dbt` |
-| `aurum-semimonthly-edgar` | `cron(0 6 1,15 * ? *)` | `ingest-edgar` → `dbt` |
+| `aurum-semimonthly-edgar` | `cron(0 6 1,15 * ? *)` | `ingest-market` → `ingest-edgar` → `dbt` |
 | `aurum-monthly-train` | `cron(0 12 1 * ? *)` | `train` |
 
 **Every ingest is followed by the build that consumes it.** `gold.mart_features` is only as
@@ -54,14 +54,30 @@ The EDGAR machine needs its own dbt state rather than borrowing the daily one: t
 fires on any day of the week, the daily machine is MON-FRI only, so fundamentals landed on a
 Saturday the 15th would otherwise sit unbuilt until Monday 22:30 — about 64 hours.
 
+It also ingests **prices first, fundamentals second, build last**. The silver and
+intermediate models join fundamentals onto the price panel; building fresh statements
+against a stale price history would produce a mart whose two halves are as-of different
+dates. Duplicating the market ingest on the 1st and 15th is harmless — both Yahoo feeds
+resume from `SELECT MAX(date) GROUP BY symbol`, so the 22:30 run simply picks up whatever
+the 06:00 run did not, and on a weekend they return `SUCCESS_NO_DATA`, which is not a
+failure.
+
+**dbt runs after every ingest, not on its own cadence.** Twice-monthly builds would in fact
+be *safe* — the intermediate models read `window_lookback_days: 900` and rewrite the
+trailing `window_rewrite_days: 90`, so a 15-day gap sits at roughly 6× margin inside the
+rewrite tail. It was rejected anyway: it would make `gold.mart_features` lag prices by up to
+two weeks between builds, and the marts are meant to be queryable, not a monthly batch
+artifact.
+
 The 1st of a month carries all three, ordered along the dependency and not overlapping.
 
 ### 2.1 The DAG
 
-The edges below are **data** dependencies, not Step Functions transitions. The two ingests
+The edges below are **data** dependencies, not Step Functions transitions. Ingest states
 write landing tables, dbt reads them and builds the medallion, train reads
 `gold.mart_features`. Nothing waits on anything across machines; the ordering holds because
-each downstream job runs later in wall-clock and reads whatever is committed by then.
+each downstream job runs later in wall-clock and reads whatever is committed by then — and
+because every ingest is followed, inside its own machine, by the build that consumes it.
 
 ```mermaid
 flowchart LR
@@ -70,7 +86,8 @@ flowchart LR
   end
 
   subgraph semi["aurum-semimonthly-edgar · cron(0 6 1,15 * ? *)"]
-    IE["ingest-edgar<br/>truncate + load ×6<br/>serial, SEC 10 req/s"] --> DBT2["dbt<br/>seed + build<br/>237 tests"]
+    IM2["ingest-market<br/>same feeds, incremental"] --> IE["ingest-edgar<br/>truncate + load ×6<br/>serial, SEC 10 req/s"]
+    IE --> DBT2["dbt<br/>seed + build<br/>237 tests"]
   end
 
   subgraph monthly["aurum-monthly-train · cron(0 12 1 * ? *)"]
@@ -82,6 +99,7 @@ flowchart LR
   REG[("EFS models/<br/>latest-full, latest-narrow")]
 
   IM --> LAND
+  IM2 --> LAND
   IE --> LAND
   LAND --> DBT
   LAND --> DBT2
@@ -95,15 +113,15 @@ The 1st of a month, the only day all three fire. Wall-clock order follows the de
 ingest, then the build that consumes it, then the model that reads the build:
 
 ```
-06:00-07:30  edgar → dbt     truncate + reload six tables, then rebuild the medallion
-12:00-13:00  train           reads the marts that build just produced
-22:30-23:30  market → dbt    the day's prices, and a second build
+06:00-08:00  market → edgar → dbt   prices, then six statement tables, then one build over both
+12:00-13:00  train                  reads the marts that build just produced
+22:30-23:30  market → dbt           the day's closing prices, and a second build
 ```
 
-The 06:00 → 12:00 gap is deliberate slack: EDGAR takes ~27 minutes and the build after it
-roughly as long again, leaving several hours of margin. Training at 02:00 — where it sat in
-the first draft — would have read fundamentals up to two weeks stale while a fresher set
-landed four hours later.
+The 06:00 → 12:00 gap is deliberate slack: the market leg plus EDGAR's ~27 minutes plus the
+build after them runs roughly two hours, leaving margin before training reads
+`gold.mart_features`. Training at 02:00 — where it sat in the first draft — would have read
+fundamentals up to two weeks stale while a fresher set landed four hours later.
 
 ### 2.2 The state graph
 
@@ -119,8 +137,9 @@ flowchart TD
   N["NotifyFailure<br/>sns:publish → aurum-alerts<br/>$.error.Error, $.error.Cause"] --> F([Fail])
 ```
 
-`aurum-semimonthly-edgar` is the same graph with `ingest-edgar` (Retry ×1) in place of
-`ingest-market`. `aurum-monthly-train` is the same graph with one ECS state (`train`,
+`aurum-semimonthly-edgar` is the same graph with three ECS states —
+`ingest-market` → `ingest-edgar` (Retry ×1) → `dbt` — every one of them catching to the same
+`NotifyFailure`. `aurum-monthly-train` is the same graph with one ECS state (`train`,
 Timeout 10800 s, **no
 Retry** — a one-hour fit that OOMs does not succeed on a blind second attempt, and it is
 the most expensive task in the account).

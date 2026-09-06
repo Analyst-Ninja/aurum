@@ -18,10 +18,10 @@ What actually exists and runs today:
   | State machine | Cron (UTC) | States |
   |---|---|---|
   | `aurum-daily-market` | `cron(30 22 ? * MON-FRI *)` | `ingest-market` → `dbt` |
-  | `aurum-semimonthly-edgar` | `cron(0 6 1,15 * ? *)` | `ingest-edgar` → `dbt` |
+  | `aurum-semimonthly-edgar` | `cron(0 6 1,15 * ? *)` | `ingest-market` → `ingest-edgar` → `dbt` |
   | `aurum-monthly-train` | `cron(0 12 1 * ? *)` | `train` |
 
-  Both ingest machines end in a `dbt` state — `gold.mart_features` is only as fresh as the last build, and the EDGAR cron fires on any weekday *or weekend* while the daily machine is MON-FRI only. On the 1st the three run in dependency order: EDGAR+dbt 06:00, train 12:00, market+dbt 22:30.
+  **dbt runs after every ingest.** `gold.mart_features` is only as fresh as the last build, and the EDGAR cron fires on any weekday *or weekend* while the daily machine is MON-FRI only — so the EDGAR machine carries its own `dbt` state rather than waiting for the daily one. It ingests prices before fundamentals because the silver models join the two, and a build over fresh statements and stale prices would be as-of two different dates. On the 1st the three machines run in dependency order: market+EDGAR+dbt 06:00, train 12:00, market+dbt 22:30.
 
   Each task definition's `command` holds the **whole** logical workflow (`sh -c "a && b && c"`), so the state machines are one or two states rather than the ten the original plan described — see `docs/infra/aws-deployment-plan.md` §2.3 for the trade. `dbt` and `train` deliberately stay separate states: a dbt failure must never reach training. Every ECS state is `ecs:runTask.sync`, which fails on a non-zero container exit, so `src/ingestion/cli.py`'s `sys.exit(1)` is load-bearing. Failures publish to SNS **and** end the execution red.
 
