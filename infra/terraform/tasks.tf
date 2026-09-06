@@ -50,14 +50,23 @@ locals {
   ]
 }
 
-# Daily. Incremental from the watermark — -f False is the whole point, a full load would
-# re-pull 2000-to-today every night.
+# Daily. Both market feeds, incremental from their watermarks — -f False is the whole
+# point, a full load would re-pull 2000-to-today every night.
+#
+# Sequential, not parallel. Both feeds hit Yahoo, and the configs already self-throttle
+# (batch_size 100, sleep_seconds 1); running them concurrently would double the request
+# rate for no useful gain. The `&&` also means a 1d failure stops the 1m run rather than
+# burying it in the same log.
+#
+# Sized for the daily increments, not for a first full load. Backfilling either feed needs
+# a task-level override — 1024/2048 was OOM-killed (exit 137) doing the 1d history, and
+# the first 1m load is ~5.9M rows (503 symbols x ~30 days of retention x 390 minutes).
 resource "aws_ecs_task_definition" "ingest_market" {
   family                   = "${var.project}-ingest-market"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 1024
-  memory                   = 2048
+  cpu                      = 2048
+  memory                   = 8192
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
 
@@ -99,7 +108,10 @@ resource "aws_ecs_task_definition" "ingest_market" {
     logConfiguration = merge(local.log_configuration, {
       options = merge(local.log_configuration.options, { "awslogs-stream-prefix" = "ingest-market" })
     })
-    command = ["ingest", "-c", "src/ingestion/configs/yahoo/ohlcv_1d.yaml", "-f", "False"]
+    command = ["sh", "-c", join(" && ", [
+      "python -m src.ingestion.cli -c src/ingestion/configs/yahoo/ohlcv_1d.yaml -f False",
+      "python -m src.ingestion.cli -c src/ingestion/configs/yahoo/ohlcv_1min.yaml -f False",
+    ])]
   }])
 }
 
