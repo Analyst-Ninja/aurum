@@ -18,6 +18,15 @@ data "aws_subnets" "default" {
     name   = "vpc-id"
     values = [data.aws_vpc.default.id]
   }
+
+  # One subnet per availability zone, not every subnet in the VPC. EFS permits exactly
+  # one mount target per AZ, and this account's default VPC carries two subnets in five
+  # of the six AZs — without this filter the apply gets partway through and dies with
+  # MountTargetConflict.
+  filter {
+    name   = "default-for-az"
+    values = ["true"]
+  }
 }
 
 # --- Security groups ---------------------------------------------------------------
