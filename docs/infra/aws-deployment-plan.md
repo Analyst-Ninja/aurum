@@ -37,13 +37,62 @@ automatic promotion, multiple environments, Multi-AZ.
 |---|---|---|
 | `aurum-daily-market` | `cron(30 22 ? * MON-FRI *)` | `ingest yahoo/ohlcv_1d -f False` |
 | `aurum-monthly-edgar` | `cron(0 6 1 * ? *)` | `Map` over the 6 EDGAR configs, `MaxConcurrency: 1` |
-| `aurum-weekly-model` | `cron(0 2 ? * SAT *)` | `dbt seed` → `dbt build` → `train` → `evaluate` → `backtest` |
+| `aurum-weekly-model` | `cron(0 2 ? * SAT *)` | the full modelling loop — 10 states, §2.1 |
 
-dbt runs weekly, before training, in the same state machine — a dbt failure must never reach `train`.
-The daily job only ingests. **Promotion stays manual**: the weekly run trains, evaluates and
-backtests, then emails the result. It does not repoint `models/latest`. That matches
-[training-and-retraining.md](../modeling/training-and-retraining.md), which treats the two-sided
-promotion gate as a judgement call.
+dbt runs weekly, before training, in the same state machine — a dbt failure must never reach
+`train`. The daily job only ingests.
+
+### 2.1 The weekly chain
+
+Not train-and-backtest. The pipeline in
+[`pipeline-runbook.md`](../modeling/pipeline-runbook.md) trains on every feature, ranks
+features with SHAP, retrains on the narrowed set, then **compares the two on the holdout**.
+That comparison is what says whether the narrowed model is worth migrating to.
+
+The same two task definitions run throughout; only `command` changes.
+
+| # | Task def | Command |
+|---|---|---|
+| 1 | `aurum-dbt` | `dbt seed` |
+| 2 | `aurum-dbt` | `dbt build` |
+| 3 | `aurum-train` | `model train -c /app/models/configs/lgbm_xs_excess_5d.yaml --version-suffix full` |
+| 4 | `aurum-train` | `model evaluate -c <base> --version latest-full` |
+| 5 | `aurum-train` | `model select-features -c <base> --version latest-full` |
+| 6 | `aurum-dbt` | `sh -c "cp the seed into the dbt project && dbt seed --select selected_features && dbt build --select mart_feature_summary"` |
+| 7 | `aurum-train` | `model train -c ..._narrow.yaml --version-suffix narrow` |
+| 8 | `aurum-train` | `model evaluate -c <narrow> --version latest-narrow` |
+| 9 | `aurum-train` | `model compare -c <narrow> --version latest-narrow --baseline latest-full` |
+| 10 | `aurum-train` | `model backtest -c <narrow> --version latest-narrow` |
+
+Three things make this work, and none of them are obvious:
+
+- **`--version-suffix` is required, not cosmetic.** Both trains run on the same day from the
+  same image, so `version_id()` — `{date}-{git short sha}` — produces the *same id* for both,
+  and the narrowed run would overwrite the baseline it is meant to be compared against. The
+  flag also publishes `models/latest-full` and `models/latest-narrow`, which is how the states
+  above name their inputs: ASL has no date formatting, so the state machine cannot rebuild
+  `20260906-a3aff7a-narrow` on its own.
+- **The base config lives on EFS, not in the image.** `select-features` writes the generated
+  `<config>_narrow.yaml` beside the base config, and that path is derived rather than
+  configurable. Every state is a fresh container, so a config baked into the image would take
+  the generated narrow config down with it when the task exits.
+- **State 6 copies the seed into the dbt project directory first.** dbt reads the seed CSV from
+  there, not from the config's `seed_path`. And `dbt seed` must precede
+  `dbt build --select mart_feature_summary`, because the mart reads the Postgres table rather
+  than the CSV.
+
+**Promotion stays manual.** `compare` writes `comparison.json` with a `narrowed_wins` verdict
+and promotes nothing, which matches
+[training-and-retraining.md](../modeling/training-and-retraining.md) — it treats the two-sided
+gate as a judgement call.
+
+Note that `models/latest` **does** move: `save_run` repoints it on every train, so after state 7
+it points at the narrowed run whether or not that run won. `latest` means "most recently
+trained", not "blessed"; `latest-full` and `latest-narrow` are the names that carry meaning.
+The loop also does **not** commit `selected_features.csv` back to git the way the manual runbook
+does — it lives on EFS, and you copy it into the repo by hand if you keep the narrowed model.
+
+Weekly runtime is roughly an hour: two fits (~30 min on 193 features, ~5 min on 40) plus SHAP.
 
 ## 3. Architecture
 
@@ -225,7 +274,9 @@ there is no NAT.
    machine in Part 4. Everything else proceeds either way.
 4. **Backfill, attended** — Yahoo full load (503 symbols, 2000 → today, ~2.9 M rows) → the 6 EDGAR
    configs serially, respecting the 10 req/s cap → `dbt seed` → `dbt build` (the slow one; watch
-   `FreeStorageSpace` and `CPUCreditBalance`) → first `train`, `evaluate`, `backtest`.
+   `FreeStorageSpace` and `CPUCreditBalance`) → first `train --version-suffix full`, `evaluate`,
+   `backtest`. Also copy the base config and the seed CSV onto EFS under `/app/models/configs/`
+   and `/app/models/seeds/`, which §2.1 depends on.
 
 **Accept when** `gold.mart_features` holds ~2.9 M rows across 503 symbols, `dbt test` gives the
 documented **237 tests, 2 warn, 0 error**, and one `models/<date>-<sha>/` exists with `metrics.json`
