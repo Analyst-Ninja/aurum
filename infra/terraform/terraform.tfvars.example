@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars (gitignored) and fill in. Nothing here has a safe default.
+
+db_password    = "change-me-a-long-random-string"
+sec_user_agent = "Your Name your.email@example.com"
+
+# alert_email is added in GH-75, with the SNS subscription that uses it.
+
+# Set per deploy: `make push` prints the tag it pushed.
+# image_tag = "a3aff7a"
