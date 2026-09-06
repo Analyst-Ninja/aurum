@@ -1,7 +1,7 @@
 # Training and retraining — folds, fitting, the registry, and when to do it again
 
-> **Design — not yet built.** Specifies `src/modeling/models/`, `src/modeling/data/splits.py`, the
-> registry and the container. Implemented under
+> **Built.** `src/modeling/models/`, `src/modeling/data/splits.py`, the registry and the
+> training container all exist. Implemented under
 > [#52](https://github.com/Analyst-Ninja/aurum/issues/52),
 > [#53](https://github.com/Analyst-Ninja/aurum/issues/53) and
 > [#57](https://github.com/Analyst-Ninja/aurum/issues/57).
@@ -258,11 +258,16 @@ docker compose -f docker-compose.modeling.yml run --rm trainer \
 ```
 
 `docker/modeling.Dockerfile` — `python:3.12-slim` matching `.python-version`, uv,
-`uv sync --locked --group modeling`, non-root user. The compose service mounts `./models` and
-`./data` so artifacts survive the container, and reaches the **host's** Postgres via
-`host.docker.internal` (`network_mode: host` on Linux). Standing up a database service inside
-compose would mean loading 2.9M rows into it; for a local-first project, reaching the host is the
-honest simplification.
+`uv sync --locked --no-build --group modeling`, non-root user (uid 1000). The compose service
+mounts `./models` and `./data` so artifacts survive the container, and reaches the **host's**
+Postgres via `host.docker.internal` (`extra_hosts: host-gateway` makes that resolve on Linux).
+Standing up a database service inside compose would mean loading 2.9M rows into it; for a
+local-first project, reaching the host is the honest simplification.
+
+The entrypoint is `python -m src.modeling.cli`, so every subcommand — `evaluate`,
+`select-features`, `backtest`, `predict` — runs the same way, not just `train`. Build,
+networking and troubleshooting details:
+[`docs/operations/training-container.md`](../operations/training-container.md).
 
 ### 9.2 Dependencies, and one rule amended
 
