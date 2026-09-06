@@ -1,0 +1,8 @@
+# State never belongs in git — it holds the RDS password in plaintext.
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Real variable values, including secrets. terraform.tfvars.example is the template.
+*.tfvars
+!*.tfvars.example
