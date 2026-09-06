@@ -84,27 +84,30 @@ class BaseFeed(ABC):
                     date_column=self.config.get("watermark_date_column", "date"),
                 )
 
-            data = self.input_ds.read_data(run_date, watermarks=watermarks)
             self.metrics["incremental"] = incremental
             self.metrics["run_date"] = run_date
             self.metrics["execution_id"] = execution_id
-            self.metrics["row_count"] = len(data)
 
-            if data.empty:
-                self.metrics["row_count"] = 0
+            # Write each chunk before fetching the next, so peak memory is one batch
+            # rather than the whole pull. Sources that do not page yield a single chunk
+            # (BaseDatasource.read_data_chunks), which is the previous behaviour exactly.
+            row_count = 0
+            for chunk in self.input_ds.read_data_chunks(run_date, watermarks=watermarks):
+                processed_data = self.process(chunk)
+                processed_data = self._add_write_metadata(
+                    processed_data, run_date, execution_id
+                )
+                self.output_ds.write_data(run_date, processed_data)
+                row_count += len(processed_data)
+
+            self.metrics["row_count"] = row_count
+            self.metrics["end_time"] = datetime.now()
+
+            if row_count == 0:
                 self.logger.warning(f"Feed {self.feed_name} has no data")
-                self.metrics["end_time"] = datetime.now()
                 self.metrics["execution_status"] = "SUCCESS_NO_DATA"
                 return self.metrics
 
-            processed_data = self.process(data)
-            processed_data = self._add_write_metadata(
-                processed_data, run_date, execution_id
-            )
-
-            self.output_ds.write_data(run_date, processed_data)
-
-            self.metrics["end_time"] = datetime.now()
             self.metrics["execution_status"] = "SUCCESS"
             self.logger.info(f"Feed {self.feed_name} execution complete")
 
