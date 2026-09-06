@@ -124,9 +124,14 @@ resource "aws_efs_mount_target" "artifacts" {
   security_groups = [aws_security_group.data.id]
 }
 
+# Two access points, not one. The container mounts /app/models and /app/data, and a single
+# access point mounted at both paths would make them two views of the SAME directory — the
+# model registry and the Parquet training cache written on top of each other. Each gets its
+# own subdirectory of the filesystem instead.
+#
 # uid/gid 1000 matches the non-root `aurum` user in docker/aurum.Dockerfile. Mismatch here
 # means the container cannot write its own artifacts.
-resource "aws_efs_access_point" "artifacts" {
+resource "aws_efs_access_point" "models" {
   file_system_id = aws_efs_file_system.artifacts.id
 
   posix_user {
@@ -135,7 +140,7 @@ resource "aws_efs_access_point" "artifacts" {
   }
 
   root_directory {
-    path = "/aurum"
+    path = "/aurum/models"
 
     creation_info {
       owner_uid   = 1000
@@ -144,7 +149,28 @@ resource "aws_efs_access_point" "artifacts" {
     }
   }
 
-  tags = { Name = "${var.project}-artifacts" }
+  tags = { Name = "${var.project}-models" }
+}
+
+resource "aws_efs_access_point" "data" {
+  file_system_id = aws_efs_file_system.artifacts.id
+
+  posix_user {
+    uid = 1000
+    gid = 1000
+  }
+
+  root_directory {
+    path = "/aurum/data"
+
+    creation_info {
+      owner_uid   = 1000
+      owner_gid   = 1000
+      permissions = "0755"
+    }
+  }
+
+  tags = { Name = "${var.project}-data" }
 }
 
 # --- Cluster and logs --------------------------------------------------------------
@@ -276,7 +302,10 @@ data "aws_iam_policy_document" "task" {
     condition {
       test     = "StringEquals"
       variable = "elasticfilesystem:AccessPointArn"
-      values   = [aws_efs_access_point.artifacts.arn]
+      values = [
+        aws_efs_access_point.models.arn,
+        aws_efs_access_point.data.arn,
+      ]
     }
   }
 

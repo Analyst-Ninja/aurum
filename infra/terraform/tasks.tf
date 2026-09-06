@@ -35,13 +35,13 @@ locals {
     }
   }
 
-  # Both bind mounts from docker-compose.modeling.yml, now backed by EFS. The access point
-  # supplies uid/gid 1000, so the container's non-root user owns what it writes.
-  efs_volume_name = "artifacts"
-
+  # Both bind mounts from docker-compose.modeling.yml, now backed by EFS. One volume per
+  # access point: sharing a single access point across both paths would make /app/models and
+  # /app/data the same directory. The access points supply uid/gid 1000, so the container's
+  # non-root user owns what it writes.
   mount_points = [
-    { sourceVolume = local.efs_volume_name, containerPath = "/app/models", readOnly = false },
-    { sourceVolume = local.efs_volume_name, containerPath = "/app/data", readOnly = false },
+    { sourceVolume = "models", containerPath = "/app/models", readOnly = false },
+    { sourceVolume = "data", containerPath = "/app/data", readOnly = false },
   ]
 }
 
@@ -57,14 +57,28 @@ resource "aws_ecs_task_definition" "ingest_market" {
   task_role_arn            = aws_iam_role.task.arn
 
   volume {
-    name = local.efs_volume_name
+    name = "models"
 
     efs_volume_configuration {
       file_system_id     = aws_efs_file_system.artifacts.id
       transit_encryption = "ENABLED"
 
       authorization_config {
-        access_point_id = aws_efs_access_point.artifacts.id
+        access_point_id = aws_efs_access_point.models.id
+        iam             = "ENABLED"
+      }
+    }
+  }
+
+  volume {
+    name = "data"
+
+    efs_volume_configuration {
+      file_system_id     = aws_efs_file_system.artifacts.id
+      transit_encryption = "ENABLED"
+
+      authorization_config {
+        access_point_id = aws_efs_access_point.data.id
         iam             = "ENABLED"
       }
     }
@@ -96,14 +110,28 @@ resource "aws_ecs_task_definition" "ingest_edgar" {
   task_role_arn            = aws_iam_role.task.arn
 
   volume {
-    name = local.efs_volume_name
+    name = "models"
 
     efs_volume_configuration {
       file_system_id     = aws_efs_file_system.artifacts.id
       transit_encryption = "ENABLED"
 
       authorization_config {
-        access_point_id = aws_efs_access_point.artifacts.id
+        access_point_id = aws_efs_access_point.models.id
+        iam             = "ENABLED"
+      }
+    }
+  }
+
+  volume {
+    name = "data"
+
+    efs_volume_configuration {
+      file_system_id     = aws_efs_file_system.artifacts.id
+      transit_encryption = "ENABLED"
+
+      authorization_config {
+        access_point_id = aws_efs_access_point.data.id
         iam             = "ENABLED"
       }
     }
@@ -135,14 +163,28 @@ resource "aws_ecs_task_definition" "dbt" {
   task_role_arn            = aws_iam_role.task.arn
 
   volume {
-    name = local.efs_volume_name
+    name = "models"
 
     efs_volume_configuration {
       file_system_id     = aws_efs_file_system.artifacts.id
       transit_encryption = "ENABLED"
 
       authorization_config {
-        access_point_id = aws_efs_access_point.artifacts.id
+        access_point_id = aws_efs_access_point.models.id
+        iam             = "ENABLED"
+      }
+    }
+  }
+
+  volume {
+    name = "data"
+
+    efs_volume_configuration {
+      file_system_id     = aws_efs_file_system.artifacts.id
+      transit_encryption = "ENABLED"
+
+      authorization_config {
+        access_point_id = aws_efs_access_point.data.id
         iam             = "ENABLED"
       }
     }
@@ -175,14 +217,28 @@ resource "aws_ecs_task_definition" "train" {
   task_role_arn            = aws_iam_role.task.arn
 
   volume {
-    name = local.efs_volume_name
+    name = "models"
 
     efs_volume_configuration {
       file_system_id     = aws_efs_file_system.artifacts.id
       transit_encryption = "ENABLED"
 
       authorization_config {
-        access_point_id = aws_efs_access_point.artifacts.id
+        access_point_id = aws_efs_access_point.models.id
+        iam             = "ENABLED"
+      }
+    }
+  }
+
+  volume {
+    name = "data"
+
+    efs_volume_configuration {
+      file_system_id     = aws_efs_file_system.artifacts.id
+      transit_encryption = "ENABLED"
+
+      authorization_config {
+        access_point_id = aws_efs_access_point.data.id
         iam             = "ENABLED"
       }
     }
