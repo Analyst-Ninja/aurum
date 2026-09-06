@@ -20,14 +20,40 @@ resource "aws_db_parameter_group" "aurum" {
   family      = "postgres17"
   description = "Sort/hash memory tuned for the dbt medallion on a 1 GB instance"
 
+  # 96 MB, up from 16 MB. Both parameters below are `dynamic`, so neither needs a reboot.
+  #
+  # 16 MB was sized for the original 1 GB db.t4g.micro (see this group's description, which
+  # is stale). On db.m7g.large it made every window function in the gold layer spill to
+  # temp files: the 2026-09-06 build sustained ~119 MB/s against a 125 MiB/s gp3 ceiling
+  # with a disk queue depth of 13-63, moving ~430 GB of I/O to produce ~20 GB of tables,
+  # and finished by running the volume out of space entirely.
+  #
+  # Sizing is bounded by the worst case, not the typical one. work_mem is allocated PER
+  # SORT/HASH NODE, per process — and two multipliers compound it:
+  #   * max_parallel_workers_per_gather = 2, so a session is leader + 2 workers, each
+  #     with its own allocation
+  #   * hash_mem_multiplier = 2, so hash nodes get twice this value
+  # At dbt threads: 4 that is 4 x 3 x 2 = 24x for a single concurrent hash node, or
+  # ~2.3 GB here, against roughly 5 GB left once shared_buffers (1.85 GB) is taken. That
+  # is the reason this is not the ~192 MB a naive "RAM / threads" division suggests.
+  #
+  # Raise it only alongside RAM, and lower it if dbt threads goes above 4.
   parameter {
     name  = "work_mem"
-    value = "16384" # kB
+    value = "196608" # kB = 96 MB
   }
 
   parameter {
     name  = "maintenance_work_mem"
-    value = "65536" # kB — index builds during the backfill
+    value = "1048576" # kB — index builds during the backfill
+  }
+
+  # 1.1, not the 4 the default assumes. 4 encodes a seek penalty for spinning rust; gp3 is
+  # SSD, where a random page costs barely more than a sequential one. At 4 the planner
+  # systematically over-values sequential scans and under-uses indexes.
+  parameter {
+    name  = "random_page_cost"
+    value = "1.1"
   }
 }
 
