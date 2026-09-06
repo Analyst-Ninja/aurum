@@ -152,7 +152,7 @@ def train(args: argparse.Namespace) -> None:
     booster = fit_final(dataset, pre_holdout, best_params.model_dump(), n_estimators)
 
     metadata = {
-        "version": version_id(),
+        "version": version_id(args.version_suffix),
         "git_sha": git_sha(),
         "dbt_manifest_hash": file_hash(DBT_MANIFEST),
         "config_hash": config_hash(config),
@@ -183,7 +183,12 @@ def train(args: argparse.Namespace) -> None:
         ],
     }
     directory = save_run(
-        config.output_dir, booster, metadata, feature_manifest, preprocess_manifest
+        config.output_dir,
+        booster,
+        metadata,
+        feature_manifest,
+        preprocess_manifest,
+        suffix=args.version_suffix,
     )
     _save_fold_predictions(directory, folds, best_fits, dates, symbols, raw_target)
     logger.info("Mean validation IC %.4f across %s folds", best_ic, len(best_fits))
@@ -244,6 +249,15 @@ def main() -> None:
         )
         if name in VERSIONED:
             subparser.add_argument("--version", default="latest", help="Registry version")
+        if name == "train":
+            # The weekly pipeline trains twice in one day from one image; without a
+            # suffix both runs share a version id and the second overwrites the first.
+            subparser.add_argument(
+                "--version-suffix",
+                default=None,
+                help="Append to the version id and publish models/latest-<suffix> "
+                "(lowercase letters, digits and hyphens)",
+            )
         if name == "predict":
             subparser.add_argument("--asof", default=None, help="Score as of this date")
         if name == "compare":
