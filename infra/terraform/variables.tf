@@ -57,9 +57,9 @@ variable "db_ingress_cidrs" {
 }
 
 variable "db_allocated_storage" {
-  description = "Initial gp3 storage in GB. Autoscales to db_max_allocated_storage, so this is a floor, not a budget."
+  description = "gp3 storage in GB. A floor, not a budget — but do not rely on autoscaling to cover the gap. 30 GB was not enough: the gold build filled it 18 GB -> 0 in ~35 minutes and `dbt build` died with `could not extend file ... No space left on device` on mart_training_set (2026-09-06). Storage autoscaling needs free space under 10% *sustained* and holds a 6-hour cooldown between scalings, so it cannot win that race. mart_features and mart_training_set are ~2.9M x 228 each and coexist during the build, alongside per-session temp sort/hash spill files — four of them at dbt threads: 4. NOTE: RDS storage can only ever grow; this cannot be lowered later without a dump and restore."
   type        = number
-  default     = 30
+  default     = 100
 }
 
 variable "db_max_allocated_storage" {

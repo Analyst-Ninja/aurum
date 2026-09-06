@@ -18,9 +18,16 @@ aurum_dwh:
       schema: bronze
       # Four. This was two, sized for the original db.t4g.micro and its 1 GB of RAM,
       # where four concurrent window-function-heavy models exhausted the instance. The
-      # database is db.m7g.large now — 2 vCPU, 8 GB, non-burstable — and two threads leave
-      # it idle for most of the build. Four saturates both vCPUs without queueing.
+      # database is db.m7g.large now — 2 vCPU, 8 GB, non-burstable.
       #
-      # Raise this only alongside the instance class: threads beyond the DB's vCPU count
-      # add contention, not throughput, and the gold models are CPU-bound on Postgres.
+      # Four is deliberate 2x oversubscription of two cores, NOT "one thread per vCPU":
+      # m7g is Graviton3 and has no SMT, so 2 vCPU is 2 physical cores and four sessions
+      # do queue. The bet is that a session is not CPU-bound the whole time — it blocks on
+      # page reads, writes and WAL flushes — and that most of the 235 tests are light
+      # queries where concurrency clearly wins.
+      #
+      # The cost of the bet is memory and disk: each backend gets its own work_mem, and
+      # four concurrent window-heavy sorts spill four sets of temp files. That contributed
+      # to the 2026-09-06 out-of-disk failure on mart_training_set. Watch FreeableMemory
+      # and FreeStorageSpace on a scheduled build; drop to 3 if either dives.
       threads: 4

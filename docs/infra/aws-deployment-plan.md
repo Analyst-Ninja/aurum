@@ -269,14 +269,14 @@ ingestion and would have made the weekly `dbt build` unusable. The instance was 
 
 | Item | ~USD/mo |
 |---|---|
-| RDS `db.m7g.large`, 30 GB gp3, 7-day backups | 118 |
+| RDS `db.m7g.large`, 100 GB gp3, 7-day backups | 126 |
 | EFS (~5 GB, IA after 7 days) | 1.00 |
 | ECR (one image, 3 tags retained) | 0.75 |
 | Fargate on-demand — daily ingest + dbt, semi-monthly EDGAR, monthly train | 1.30 |
 | CloudWatch Logs (7-day retention) | 0.50 |
 | Public IPv4 hours (tasks, plus the RDS public address) | 0.60 |
 | Step Functions, Scheduler, SNS, SSM, S3 state | ~0.05 |
-| **Total** | **~123** |
+| **Total** | **~131** |
 
 The architecture choices made *for* the old budget all still stand on their own merits and were
 not reverted: no NAT gateway, no interface VPC endpoints, default VPC, SSM Parameter Store
@@ -523,6 +523,7 @@ link. Until someone does, every failure is silent.
 | `train` exits 137 | OOM; 8 GB is not enough for a 2.9M × 228 panel | the task definition is 16 GB ([training-container.md](../operations/training-container.md) §5) |
 | `ingest-market` exits 137 with a bare `Killed` right after "Writing data" | a **first load**, not an increment: the landing table does not exist, so `get_watermarks` returns `{}` and the feed pulls 503 symbols from 2000 to today. The task is sized for daily increments | back-fill once with `run-task --overrides '{"cpu":"4096","memory":"30720",…}'`, one feed at a time; after that the watermark exists and the nightly run fits. `write_data` chunks at 50k rows, which bounds the batch but not the pull |
 | `dbt build` dies with `SSL SYSCALL error: EOF detected` | RDS restarted, or `CPUCreditBalance` hit zero on a burstable class | `db.m7g.large` is non-burstable; check `apply_immediately` modifications are not in flight |
+| `dbt build` exits 1 with `could not extend file ... No space left on device` | RDS is out of disk. The gold build holds `mart_features` and `mart_training_set` (~2.9M × 228 each) at once, plus one set of temp sort/hash spill files **per dbt thread** | `db_allocated_storage` is 100 GB. Autoscaling will not rescue this — it needs free space under 10% sustained and holds a 6-hour cooldown, while the build consumed 18 GB in ~35 minutes. Watch `FreeStorageSpace` |
 | SEC returns 403 | `SEC_USER_AGENT` unset or dishonest | it is on **every** task, not just EDGAR — `yahoo/ohlcv.py` scrapes the S&P 500 universe from Wikipedia, which also refuses anonymous traffic |
 | `models/latest` missing | no train has run against this EFS filesystem yet | run `aurum-monthly-train` once by hand |
 | dbt profile not found | `DBT_PROFILES_DIR` or the working directory | the entrypoint `cd`s to `/app/src/transformation/aurum_dwh`; profiles come from `docker/dbt/` |
@@ -586,7 +587,8 @@ under `monthly_budget_usd`.
 | RDS is too small for the gold build | Resolved by moving to `db.m7g.large` (§5); watch `FreeableMemory` |
 | SEC 403s the Fargate address | Measured in Part 3: it does not (§5.1). Fall back to running EDGAR locally against RDS if that ever changes |
 | Task stuck in `PROVISIONING` | Missing `assignPublicIp=ENABLED` — there is no NAT to fall back on |
-| The backfill is far slower than it is locally | Expected, and it is one-off. Run it attended; storage autoscaling to 100 GB prevents a disk-full stall |
+| The backfill is far slower than it is locally | Expected, and it is one-off. Run it attended |
+| A single model exhausts the disk faster than autoscaling reacts | Measured on 2026-09-06: 18 GB → 0 in ~35 minutes. `db_allocated_storage` is provisioned at 100 GB up front rather than left to autoscale |
 | Spot interruption kills a run | Not applicable — everything runs on-demand Fargate (§3) |
 | The dbt group breaks the image build | The second sync layer drops `--no-build`; CI's install path is untouched |
 | A model version stamps as `{date}-unknown` | `AURUM_GIT_SHA = var.image_tag` on the modelling tasks |
