@@ -1,6 +1,6 @@
 {
-  "version": "20260906-a7cffa3",
-  "backtested_at": "2026-09-06T04:10:59+00:00",
+  "version": "20260906-unknown",
+  "backtested_at": "2026-09-06T04:50:48+00:00",
   "horizon": 5,
   "construction": {
     "legs": "long decile 10, short decile 1, dollar-neutral, equal-weight",
@@ -12,85 +12,85 @@
       "start_date": "2024-10-01",
       "end_date": "2026-08-28",
       "n_dates": 479,
-      "mean_turnover_per_rebalance": 0.555032652301427,
+      "mean_turnover_per_rebalance": 0.5378249052785671,
       "by_cost_bps": {
         "0bps": {
-          "sharpe": 0.4607879029848373,
-          "mean_return": 0.00199809731136495
+          "sharpe": 0.0629394137378018,
+          "mean_return": 0.0003413538698142221
         },
         "5bps": {
-          "sharpe": 0.3326901257615792,
-          "mean_return": 0.001448858319317192
+          "sharpe": -0.05742697157840663,
+          "mean_return": -0.00019085699678711616
         },
         "10bps": {
-          "sharpe": 0.2046204065310354,
-          "mean_return": 0.000899619327269434
+          "sharpe": -0.17778859083282617,
+          "mean_return": -0.0007230678633884538
         },
         "20bps": {
-          "sharpe": -0.05141922213121493,
-          "mean_return": -0.00019885865682608422
+          "sharpe": -0.4184850202443318,
+          "mean_return": -0.0017874895965911293
         }
       },
-      "break_even_bps": 18.189689190814104
+      "break_even_bps": 3.2069419400817996
     },
     "Evaluation folds \u2014 model selection, not a result": {
       "start_date": "2010-01-04",
       "end_date": "2024-09-30",
       "n_dates": 3710,
-      "mean_turnover_per_rebalance": 0.48303471997191283,
+      "mean_turnover_per_rebalance": 0.4702209854336507,
       "by_cost_bps": {
         "0bps": {
-          "sharpe": 1.0195489796633583,
-          "mean_return": 0.003700858573878845
+          "sharpe": 0.954694391822992,
+          "mean_return": 0.003569843499398237
         },
         "5bps": {
-          "sharpe": 0.8856588587287628,
-          "mean_return": 0.003218474844095573
+          "sharpe": 0.8279558737821568,
+          "mean_return": 0.0031002562349692134
         },
         "10bps": {
-          "sharpe": 0.7517739725200563,
-          "mean_return": 0.0027360911143123013
+          "sharpe": 0.7012193737704325,
+          "mean_return": 0.0026306689705401895
         },
         "20bps": {
-          "sharpe": 0.48404768872775944,
-          "mean_return": 0.0017713236547457587
+          "sharpe": 0.4477758965588198,
+          "mean_return": 0.0016914944416821435
         }
       },
-      "break_even_bps": 38.36010986047965
+      "break_even_bps": 38.01043778027981
     }
   },
   "reality_checks": [
     {
       "check": "Randomization",
-      "value": "90.6th percentile (p = 0.094)",
+      "value": "58.4th percentile (p = 0.416)",
       "reads": "Sharpe against a null with the same book and no signal"
     },
     {
       "check": "Signal lag (1 day)",
-      "value": "Sharpe 0.12 vs 0.46 gross",
+      "value": "Sharpe -0.17 vs 0.06 gross",
       "reads": "A collapse means same-bar information is leaking upstream"
     },
     {
       "check": "Deflated Sharpe",
-      "value": "1.000 over 1 configs",
+      "value": "0.729 over 1 configs",
       "reads": "Probability the Sharpe beats the best of that many noise strategies"
     }
   ],
   "reality_checks_detail": {
     "randomization": {
       "n_shuffles": 500,
-      "actual_sharpe": 0.4607879029848373,
-      "percentile": 90.60000000000001,
-      "p_value": 0.09399999999999986,
-      "null_mean": 0.023246633728432598,
-      "null_std": 0.3295979384822571
+      "actual_sharpe": 0.0629394137378018,
+      "percentile": 58.4,
+      "p_value": 0.41600000000000004,
+      "null_mean": 0.0008612171279438296,
+      "null_std": 0.3167774221988587
     },
     "signal_lag": {
-      "sharpe": 0.12192296750909284,
-      "mean_spread": 0.0005372944880556711,
+      "sharpe": -0.17476312413937406,
+      "mean_spread": -0.0007574062705947358,
       "n_dates": 478
     },
-    "deflated_sharpe": 0.9999960431321173
+    "deflated_sharpe": 0.7291420434784098
   },
   "assumptions": [
     "Survivorship: <code>company_meta.csv</code> is today's S&amp;P 500 applied back to 2000, so every name in this test survived to be in the index.",
