@@ -108,7 +108,32 @@ uid 1000 is the first regular user on Linux, which is what makes files written i
 `models/` mount owned by the host user rather than by root. If your host uid differs, add
 `user: "${UID}:${GID}"` to the service rather than reverting to root.
 
-## 5. Troubleshooting
+## 5. Memory
+
+The container needs more RAM than a default Docker Desktop VM gives it. The panel is
+2.9M rows x 228 float32 columns — ~2.6 GB before preprocessing makes its copies — and an
+8 GB VM gets the training process OOM-killed shortly after the load, which surfaces as a
+bare `exit code 137` with no Python traceback.
+
+**Give the Docker VM at least 12 GB** (Docker Desktop → Settings → Resources → Memory).
+Host runs do not hit this because they use the whole machine's memory.
+
+A cheap way to check the plumbing without the full schedule — a two-fold window trains in
+a couple of minutes and fits in 8 GB:
+
+```bash
+cp src/modeling/configs/lgbm_xs_excess_5d.yaml /tmp/smoke.yaml
+cat >> /tmp/smoke.yaml <<'YAML'
+splits:
+  burn_in_folds: 290
+  eval_end_fold: 292
+YAML
+AURUM_GIT_SHA=$(git rev-parse HEAD) \
+  docker compose -f docker-compose.modeling.yml run --rm \
+    -v /tmp/smoke.yaml:/app/smoke.yaml trainer train -c smoke.yaml
+```
+
+## 6. Troubleshooting
 
 | Symptom | Cause / fix |
 |---------|-------------|
@@ -117,8 +142,9 @@ uid 1000 is the first regular user on Linux, which is what makes files written i
 | `libgomp.so.1: cannot open shared object file` | The image is missing `libgomp1`, which LightGBM's wheel links against. It is installed in the Dockerfile — this means the layer was skipped, so rebuild without cache. |
 | `The lockfile is not up-to-date` during build | `pyproject.toml` changed without `uv lock`. Run `uv lock` on the host and rebuild; CI fails on the same drift. |
 | Artifacts missing from `models/` after a run | Started with `docker run` instead of compose, so the bind mounts were absent. |
+| `exit code 137`, no traceback | The kernel OOM-killed the process. See §5 — raise the Docker VM to 12 GB. |
 
-## 6. Not included
+## 7. Not included
 
 No image publishing (no GHCR push job), no Airflow DAG, no serving container, no Terraform
 wiring. `terraform.yml` is path-filtered on `infra/terraform/**`, which does not exist yet —
