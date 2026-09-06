@@ -45,13 +45,14 @@ uv run --group dbt dbt build --select bronze       # one layer at a time (bronze
 uv run --group dbt dbt run --select mart_features+ # a model and everything downstream
 uv run --group dbt dbt test --select mart_features # tests for one model
 
-# modelling (Phase 6 — DESIGNED, NOT BUILT; nothing under src/modeling/ exists yet).
-# The CLI these docs specify — see docs/modeling/training-and-retraining.md §9.
+# modelling (Phase 6 — GH-51..56 built; see docs/modeling/training-and-retraining.md §9).
+# `compare` is #55's gate: narrowed-vs-full holdout ICIR + decile spread, from two metrics.json.
 uv sync --group modeling
 uv run python -m src.modeling.cli train           -c src/modeling/configs/lgbm_xs_excess_5d.yaml
 uv run python -m src.modeling.cli evaluate        -c ... --version 20260905-a9b91fe
 uv run python -m src.modeling.cli select-features -c ... --version 20260905-a9b91fe
-uv run python -m src.modeling.cli backtest        -c ... --version latest
+uv run python -m src.modeling.cli backtest        -c ... --version latest   # writes backtest/report.html
+uv run python -m src.modeling.cli compare         -c ..._narrow.yaml --version <narrow> --baseline <full>
 uv run python -m src.modeling.cli predict         -c ... --version latest --asof 2026-09-05
 ```
 

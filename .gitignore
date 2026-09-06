@@ -241,5 +241,11 @@ nbs/*
 /models/*/model.txt
 /models/*/fold_predictions.parquet
 /models/*/backtest/positions.parquet
+# The rendered report is ~1.3 MB of base64 PNG and regenerates from summary.json plus
+# the run in one command; summary.json, yearly.csv and shap/ranking.csv stay tracked.
+/models/*/backtest/report.html
+/models/*/backtest/tearsheet.png
+/models/*/shap/per_fold.csv
 /models/latest
 /models/.latest.*
+.DS_Store

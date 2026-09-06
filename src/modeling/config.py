@@ -130,6 +130,12 @@ class PreprocessConfig(BaseModel):
     non_stationary_columns: list[str] = NON_STATIONARY_COLUMNS
     categorical_columns: list[str] = CATEGORICAL_COLUMNS
 
+    # The narrowed run. None means "every column the deny-lists leave", which is the
+    # full-feature baseline. Set from the SHAP ranking, it restricts the matrix to the
+    # selected features *after* the deny-lists, so an allow-list can never re-admit a
+    # target column. See `docs/modeling/feature-selection-shap.md` §6.
+    allow_list: list[str] | None = None
+
 
 class SplitConfig(BaseModel):
     """Purged, embargoed, expanding walk-forward."""
@@ -211,6 +217,44 @@ class TrainConfig(BaseModel):
     grid: list[ModelParams] = [ModelParams()]
 
 
+class SelectConfig(BaseModel):
+    """SHAP feature selection (#55)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Full 2.7M x 193 tree SHAP is hours of compute for no extra precision in a
+    # ranking. Sampled per date rather than uniformly: the universe grows from ~320
+    # names in 2000 to ~500 in 2026, so a uniform draw quietly ranks on recent years.
+    sample_rows: int = 200_000
+    # SHAP splits credit across correlated features, and GOLD ships most features in
+    # three cross-sectional variants (`ret_21d`, `ret_21d_z`, `ret_21d_decile`), so
+    # each looks mediocre while jointly mattering. Cluster, then rank cluster leaders.
+    corr_threshold: float = 0.95
+    cum_share: float = 0.95
+    # The cap exists because a flat importance profile lets 150 features at 0.6% each
+    # clear a 95% cumulative bar.
+    max_features: int = 40
+    # Stability is measured across contiguous chronological blocks of one final model,
+    # not across refits — the fold boosters are freed during training. A feature that
+    # only matters in one era shows up as a large std.
+    n_era_blocks: int = 5
+    seed_path: Path = Path("src/transformation/aurum_dwh/seeds/selected_features.csv")
+
+
+class BacktestConfig(BaseModel):
+    """Portfolio simulation (#56). Decisions are emitted, never auto-traded."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cost_bps_grid: list[float] = [0.0, 5.0, 10.0, 20.0]
+    half_spread_bps: float = 5.0
+    # Square-root impact coefficient. Assumed, not calibrated — see
+    # `docs/modeling/backtesting.md` §9 gap 4.
+    impact_k: float = 0.1
+    n_shuffles: int = 500
+    seed: int = 42
+
+
 class ModelingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -220,6 +264,8 @@ class ModelingConfig(BaseModel):
     preprocess: PreprocessConfig = PreprocessConfig()
     splits: SplitConfig = SplitConfig()
     train: TrainConfig = TrainConfig()
+    select: SelectConfig = SelectConfig()
+    backtest: BacktestConfig = BacktestConfig()
     # Manifests land here. GH-53's registry moves them under a version directory.
     output_dir: Path = Path("models")
 

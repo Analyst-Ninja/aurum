@@ -20,7 +20,10 @@ from src.modeling.data.preprocess import (
     transform_target,
 )
 from src.modeling.data.splits import walk_forward_folds
-from src.modeling.evaluate.runner import evaluate as run_evaluate
+from src.modeling.backtest.runner import run_backtest
+from src.modeling.evaluate.runner import METRICS, evaluate as run_evaluate
+from src.modeling.explain.seed_writer import compare_feature_sets
+from src.modeling.explain.shap_report import run_select_features
 from src.modeling.models.lgbm import build_dataset, fit_final, fit_fold
 from src.modeling.models.registry import (
     DBT_MANIFEST,
@@ -36,10 +39,10 @@ from src.modeling.models.registry import (
 logger = logging.getLogger(__name__)
 
 # Subcommands whose implementation lands in a later issue.
-PENDING = {
-    "select-features": "GH-55",
-    "backtest": "GH-56",
-}
+PENDING: dict[str, str] = {}
+
+# Every subcommand that scores or explains an existing run rather than creating one.
+VERSIONED = ("evaluate", "predict", "select-features", "backtest", "compare")
 
 
 def _prepare(config: ModelingConfig):
@@ -216,19 +219,39 @@ def predict(args: argparse.Namespace) -> None:
     print(ranked.head(20).to_string(index=False))
 
 
+def compare(args: argparse.Namespace) -> None:
+    """Decide #55's gate: does the narrowed feature set beat the full one on holdout?
+
+    Both runs must already be evaluated — this reads their `metrics.json`, it does not
+    score anything, so the comparison cannot accidentally use different rows.
+    """
+    config = load_config(args.config)
+    root = config.output_dir
+    compare_feature_sets(
+        (root / args.baseline).resolve() / METRICS,
+        (root / args.version).resolve() / METRICS,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Modelling CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    for name in ("train", "evaluate", "predict", *PENDING):
+    for name in ("train", *VERSIONED, *PENDING):
         subparser = subparsers.add_parser(name)
         subparser.add_argument(
             "--config", "-c", required=True, help="Path to run config YAML"
         )
-        if name in ("predict", "evaluate"):
+        if name in VERSIONED:
             subparser.add_argument("--version", default="latest", help="Registry version")
         if name == "predict":
             subparser.add_argument("--asof", default=None, help="Score as of this date")
+        if name == "compare":
+            subparser.add_argument(
+                "--baseline",
+                required=True,
+                help="Full-feature run to compare --version against",
+            )
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -239,6 +262,12 @@ def main() -> None:
         run_evaluate(args.config, args.version)
     elif args.command == "predict":
         predict(args)
+    elif args.command == "select-features":
+        run_select_features(args.config, args.version)
+    elif args.command == "backtest":
+        run_backtest(args.config, args.version)
+    elif args.command == "compare":
+        compare(args)
     else:
         raise NotImplementedError(f"{args.command} lands in {PENDING[args.command]}")
 
