@@ -1,8 +1,10 @@
 # AURUM — Training Container
 
-**Status:** Implemented ([#57](https://github.com/Analyst-Ninja/aurum/issues/57), Phase 6)
+**Status:** Implemented ([#57](https://github.com/Analyst-Ninja/aurum/issues/57), Phase 6);
+extended to all three workloads in [#72](https://github.com/Analyst-Ninja/aurum/issues/72)
 **Related:** [training-and-retraining.md](../modeling/training-and-retraining.md) §9 ·
-[pipeline-runbook.md](../modeling/pipeline-runbook.md) · [cicd.md](cicd.md)
+[pipeline-runbook.md](../modeling/pipeline-runbook.md) · [cicd.md](cicd.md) ·
+[aws-deployment-plan.md](../infra/aws-deployment-plan.md)
 
 ---
 
@@ -13,14 +15,19 @@ set. Training on the host works, but "works" depends on whatever Python happens 
 installed: `metadata.json` *records* package versions, it does not *enforce* them. The
 container closes that gap — `uv sync --locked` resolves nothing, it installs `uv.lock`.
 
-**Scope is training only.** No Airflow, no MLflow service, no model serving — those are
-Phases 7 and 8 and are deliberately out of scope here.
+**One image, three workloads.** #57 built this for training only. #72 widened it to
+ingestion and dbt as well, because the AWS deployment runs all three from ECS and one
+image is simpler to build, tag and promote than three
+([aws-deployment-plan.md](../infra/aws-deployment-plan.md) §4). No Airflow, no MLflow
+service, no model serving — those remain out of scope.
 
 Files:
 
 | File | Purpose |
 |------|---------|
-| `docker/modeling.Dockerfile` | `python:3.12-slim` + uv + the `modeling` group, non-root |
+| `docker/aurum.Dockerfile` | `python:3.12-slim` + uv + the `modeling` **and** `dbt` groups, non-root |
+| `docker/entrypoint.sh` | dispatches on the first argument: `ingest`, `dbt`, `model` |
+| `docker/dbt/profiles.yml` | env-var-templated dbt profile, used **only** inside the container |
 | `docker-compose.modeling.yml` | the `trainer` service: env, host networking, bind mounts |
 | `.dockerignore` | keeps the build context to source + lockfile |
 
@@ -30,23 +37,31 @@ Files:
 docker compose -f docker-compose.modeling.yml build trainer     # first time, or after uv.lock moves
 
 docker compose -f docker-compose.modeling.yml run --rm trainer \
-  train -c src/modeling/configs/lgbm_xs_excess_5d.yaml
+  model train -c src/modeling/configs/lgbm_xs_excess_5d.yaml
 ```
 
-The entrypoint is `python -m src.modeling.cli`, so **everything after `trainer` is a CLI
-subcommand** — the container takes the same arguments the host CLI does:
+**The first argument after `trainer` picks the workload**; everything after it goes to that
+CLI unchanged, so the container takes the same arguments the host CLIs do:
 
 ```bash
-docker compose -f docker-compose.modeling.yml run --rm trainer --help
-docker compose -f docker-compose.modeling.yml run --rm trainer evaluate        -c <cfg> --version latest
-docker compose -f docker-compose.modeling.yml run --rm trainer select-features -c <cfg> --version latest
-docker compose -f docker-compose.modeling.yml run --rm trainer backtest        -c <cfg> --version latest
+docker compose -f docker-compose.modeling.yml run --rm trainer model  train    -c <cfg>
+docker compose -f docker-compose.modeling.yml run --rm trainer model  backtest -c <cfg> --version latest
+docker compose -f docker-compose.modeling.yml run --rm trainer ingest -c src/ingestion/configs/yahoo/ohlcv_1d.yaml -f False
+docker compose -f docker-compose.modeling.yml run --rm trainer dbt    build --select bronze
+docker compose -f docker-compose.modeling.yml run --rm trainer dbt    debug
 ```
+
+Anything that is not `ingest`, `dbt` or `model` is `exec`'d verbatim, so `sh`, `id` and
+`--help` still work for debugging.
+
+> **Migrating from the #57 form:** the entrypoint used to be `python -m src.modeling.cli`,
+> so `run --rm trainer train -c …` worked directly. It is now
+> `run --rm trainer **model** train -c …`.
 
 The full 11-step pipeline, including the dbt steps that run on the host, is in
 [pipeline-runbook.md](../modeling/pipeline-runbook.md).
 
-## 3. Three decisions worth knowing
+## 3. Five decisions worth knowing
 
 ### Postgres stays on the host
 
@@ -79,11 +94,41 @@ So `git_sha()` honours `AURUM_GIT_SHA`, and compose forwards it:
 ```bash
 AURUM_GIT_SHA=$(git rev-parse HEAD) \
   docker compose -f docker-compose.modeling.yml run --rm trainer \
-    train -c src/modeling/configs/lgbm_xs_excess_5d.yaml
+    model train -c src/modeling/configs/lgbm_xs_excess_5d.yaml
 ```
 
 Unset, it falls back to `git rev-parse` (which is how host runs resolve it) and then to
 `unknown`. Always set it for a run whose artifacts you intend to keep.
+
+### dbt needs its own sync layer, and it cannot use `--no-build`
+
+The Dockerfile runs `uv sync` **twice**. The first is the ~400 MB ML stack under
+`--no-build`, mirroring CI: every modelling dependency ships a wheel, and that layer only
+rebuilds when `uv.lock` moves. The second adds the `dbt` group **without** `--no-build`,
+because `dbt-core` pulls `dbt-core-experimental-parser`, which publishes an sdist and no
+wheel.
+
+That is the same constraint that keeps `dbt-postgres` out of `[project].dependencies` in the
+first place (see the comment in `pyproject.toml`). CI's install path is unchanged and still
+runs `--no-build`; only the image relaxes it, and only for that one group.
+
+`dbt_packages/` is gitignored, so it is not in the build context either — the image runs
+`dbt deps` at build time to vendor dbt_utils, dbt_expectations and dbt_date. A container
+therefore needs no network access to run `dbt build`.
+
+### The container's dbt profile is not the host's
+
+`docker/dbt/profiles.yml` is templated on the same env vars everything else reads
+(`HOST`, `PORT`, `AURUM_USERNAME`, `AURUM_PASSWORD`), and `DBT_PROFILES_DIR` points at it.
+
+It deliberately lives under `docker/` rather than inside `src/transformation/aurum_dwh/`.
+dbt checks the working directory before `~/.dbt`, so a committed `profiles.yml` in the
+project directory would silently hijack **every host run** — `uv run --group dbt dbt debug`
+on your machine must keep resolving `~/.dbt/profiles.yml`, and it does.
+
+It also sets `threads: 2` rather than the host profile's 4, sized for the 1 GB
+`db.t4g.micro` the AWS deployment targets
+([aws-deployment-plan.md](../infra/aws-deployment-plan.md) §5).
 
 ### Artifacts live on the host
 
@@ -130,7 +175,7 @@ splits:
 YAML
 AURUM_GIT_SHA=$(git rev-parse HEAD) \
   docker compose -f docker-compose.modeling.yml run --rm \
-    -v /tmp/smoke.yaml:/app/smoke.yaml trainer train -c smoke.yaml
+    -v /tmp/smoke.yaml:/app/smoke.yaml trainer model train -c smoke.yaml
 ```
 
 ## 6. Troubleshooting
@@ -143,6 +188,9 @@ AURUM_GIT_SHA=$(git rev-parse HEAD) \
 | `The lockfile is not up-to-date` during build | `pyproject.toml` changed without `uv lock`. Run `uv lock` on the host and rebuild; CI fails on the same drift. |
 | Artifacts missing from `models/` after a run | Started with `docker run` instead of compose, so the bind mounts were absent. |
 | `exit code 137`, no traceback | The kernel OOM-killed the process. See §5 — raise the Docker VM to 12 GB. |
+| `unrecognized arguments: train` or the modelling `--help` when you wanted a run | The #57 entrypoint went straight to the modelling CLI; it now dispatches on the first argument. Use `trainer model train …`, not `trainer train …`. |
+| `Could not find command, ensure it is in the user's PATH: "git"` from `dbt debug` | The image is missing `git`, which `dbt debug` probes for. It is installed in the Dockerfile — the check is cosmetic (packages are vendored at build time), but it makes `dbt debug` exit non-zero, which would fail a Step Functions `runTask.sync` state. Rebuild without cache. |
+| `Runtime Error … profiles.yml` inside the container | `DBT_PROFILES_DIR` is unset or `docker/` was not copied into the image. Both are set in the Dockerfile. |
 
 ## 7. Verified run
 

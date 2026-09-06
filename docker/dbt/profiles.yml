@@ -1,0 +1,21 @@
+# Profile used inside the container only. The Dockerfile sets DBT_PROFILES_DIR to this
+# directory; it deliberately does NOT live in the dbt project directory, so a dbt run on
+# the host still resolves ~/.dbt/profiles.yml unchanged.
+#
+# Every value comes from the same env vars the ingestion and modelling configs name, so
+# ECS injects credentials once and all three workloads read them.
+
+aurum_dwh:
+  target: default
+  outputs:
+    default:
+      type: postgres
+      host: "{{ env_var('HOST') }}"
+      port: "{{ env_var('PORT', '5432') | int }}"
+      user: "{{ env_var('AURUM_USERNAME') }}"
+      password: "{{ env_var('AURUM_PASSWORD') }}"
+      dbname: "{{ env_var('DB_NAME', 'aurum') }}"
+      schema: bronze
+      # Two, not the host profile's four: the target RDS instance is a db.t4g.micro with
+      # 1 GB of RAM, and four concurrent window-function-heavy models exhaust it.
+      threads: 2
