@@ -268,7 +268,7 @@ resource "aws_sfn_state_machine" "semimonthly_edgar" {
   role_arn = aws_iam_role.sfn.arn
 
   definition = jsonencode({
-    Comment = "EDGAR financial statements: truncate and reload all six configs, serially."
+    Comment = "EDGAR financial statements: truncate and reload all six configs, then rebuild the warehouse."
     StartAt = "IngestEdgar"
     States = {
       IngestEdgar = {
@@ -277,6 +277,20 @@ resource "aws_sfn_state_machine" "semimonthly_edgar" {
         Parameters     = local.sfn_run_task_parameters["ingest_edgar"]
         TimeoutSeconds = local.sfn_task_states.ingest_edgar.timeout
         Retry          = local.sfn_task_states.ingest_edgar.retry
+        Catch          = local.sfn_catch
+        ResultPath     = null
+        Next           = "Dbt"
+      }
+      # Every ingest is followed by the build that consumes it — the same edge the daily
+      # machine has. Without this, fundamentals landed on a Saturday the 15th would not
+      # reach gold.mart_features until the Monday 22:30 run, ~64 hours later, because the
+      # daily machine is MON-FRI and this one is not.
+      Dbt = {
+        Type           = "Task"
+        Resource       = "arn:aws:states:::ecs:runTask.sync"
+        Parameters     = local.sfn_run_task_parameters["dbt"]
+        TimeoutSeconds = local.sfn_task_states.dbt.timeout
+        Retry          = local.sfn_task_states.dbt.retry
         Catch          = local.sfn_catch
         ResultPath     = null
         End            = true
@@ -312,12 +326,17 @@ resource "aws_sfn_state_machine" "monthly_train" {
 
 # --- Schedules ----------------------------------------------------------------------
 #
-# All three fire on the 1st of a month, and they do not collide in wall-clock:
-# train 02:00-03:00, EDGAR 06:00-06:30, market + dbt 22:30-23:30.
+# All three fire on the 1st of a month. They are ordered to follow the data dependency —
+# ingest, then the build that consumes it, then the model that reads the build — and do not
+# overlap in wall-clock:
 #
-# Train deliberately runs BEFORE that day's EDGAR refresh. It reads gold.mart_features,
-# which is only rebuilt by the 22:30 dbt run, so moving train later in the same day would
-# gain it nothing and risk overlapping the build.
+#   06:00-07:30  EDGAR ingest -> dbt
+#   12:00-13:00  train
+#   22:30-23:30  market ingest -> dbt
+#
+# The gap between the EDGAR build and training is deliberate slack: EDGAR takes ~27 minutes
+# and the dbt build after it roughly as long again, so 12:00 leaves several hours of margin
+# before training reads gold.mart_features.
 
 resource "aws_scheduler_schedule" "daily_market" {
   name       = "${var.project}-daily-market"
@@ -359,7 +378,10 @@ resource "aws_scheduler_schedule" "monthly_train" {
   name       = "${var.project}-monthly-train"
   group_name = "default"
 
-  schedule_expression          = "cron(0 2 1 * ? *)"
+  # 12:00, not 02:00. The 1st also carries the EDGAR run at 06:00 and the warehouse build
+  # that follows it, and training reads gold.mart_features — starting at 02:00 would train
+  # on fundamentals up to two weeks stale while a fresher set landed four hours later.
+  schedule_expression          = "cron(0 12 1 * ? *)"
   schedule_expression_timezone = "UTC"
 
   flexible_time_window {

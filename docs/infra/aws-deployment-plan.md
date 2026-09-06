@@ -41,16 +41,20 @@ automatic promotion, multiple environments, Multi-AZ.
 | State machine | Cron (UTC) | States |
 |---|---|---|
 | `aurum-daily-market` | `cron(30 22 ? * MON-FRI *)` | `ingest-market` → `dbt` |
-| `aurum-semimonthly-edgar` | `cron(0 6 1,15 * ? *)` | `ingest-edgar` |
-| `aurum-monthly-train` | `cron(0 2 1 * ? *)` | `train` |
+| `aurum-semimonthly-edgar` | `cron(0 6 1,15 * ? *)` | `ingest-edgar` → `dbt` |
+| `aurum-monthly-train` | `cron(0 12 1 * ? *)` | `train` |
 
-**dbt rides the daily machine, not the monthly one.** Market data lands every weekday and
-`gold.mart_features` is only as fresh as the last `dbt build` — putting dbt in front of a
-monthly training run would leave the marts up to 30 days stale for everything else that
-reads them. It runs strictly after the ingest state, so a broken feed never feeds a green
-warehouse build.
+**Every ingest is followed by the build that consumes it.** `gold.mart_features` is only as
+fresh as the last `dbt build`, so both ingest machines end in one — putting dbt in front of
+a monthly training run instead would leave the marts up to 30 days stale for everything else
+that reads them. It always runs strictly *after* the ingest state, so a broken feed never
+feeds a green warehouse build.
 
-The 1st of a month carries all three. They do not collide in wall-clock.
+The EDGAR machine needs its own dbt state rather than borrowing the daily one: this cron
+fires on any day of the week, the daily machine is MON-FRI only, so fundamentals landed on a
+Saturday the 15th would otherwise sit unbuilt until Monday 22:30 — about 64 hours.
+
+The 1st of a month carries all three, ordered along the dependency and not overlapping.
 
 ### 2.1 The DAG
 
@@ -66,10 +70,10 @@ flowchart LR
   end
 
   subgraph semi["aurum-semimonthly-edgar · cron(0 6 1,15 * ? *)"]
-    IE["ingest-edgar<br/>truncate + load ×6<br/>serial, SEC 10 req/s"]
+    IE["ingest-edgar<br/>truncate + load ×6<br/>serial, SEC 10 req/s"] --> DBT2["dbt<br/>seed + build<br/>237 tests"]
   end
 
-  subgraph monthly["aurum-monthly-train · cron(0 2 1 * ? *)"]
+  subgraph monthly["aurum-monthly-train · cron(0 12 1 * ? *)"]
     TR["train<br/>full → SHAP → narrow<br/>→ compare → backtest"]
   end
 
@@ -80,22 +84,26 @@ flowchart LR
   IM --> LAND
   IE --> LAND
   LAND --> DBT
+  LAND --> DBT2
   DBT --> GOLD
+  DBT2 --> GOLD
   GOLD --> TR
   TR --> REG
 ```
 
-The 1st of a month, the only day all three fire:
+The 1st of a month, the only day all three fire. Wall-clock order follows the dependency —
+ingest, then the build that consumes it, then the model that reads the build:
 
 ```
-02:00  train         reads the marts the previous weekday's dbt built
-06:00  edgar         truncate + reload the six statement tables
-22:30  market → dbt  picks up both the new prices and the new fundamentals
+06:00-07:30  edgar → dbt     truncate + reload six tables, then rebuild the medallion
+12:00-13:00  train           reads the marts that build just produced
+22:30-23:30  market → dbt    the day's prices, and a second build
 ```
 
-Train deliberately runs *before* that day's EDGAR refresh. It reads gold, gold is only
-rebuilt at 22:30, so moving train later in the same day would gain it nothing and would
-risk overlapping the build.
+The 06:00 → 12:00 gap is deliberate slack: EDGAR takes ~27 minutes and the build after it
+roughly as long again, leaving several hours of margin. Training at 02:00 — where it sat in
+the first draft — would have read fundamentals up to two weeks stale while a fresher set
+landed four hours later.
 
 ### 2.2 The state graph
 
@@ -111,8 +119,9 @@ flowchart TD
   N["NotifyFailure<br/>sns:publish → aurum-alerts<br/>$.error.Error, $.error.Cause"] --> F([Fail])
 ```
 
-`aurum-semimonthly-edgar` is the same graph with one ECS state (`ingest-edgar`, Retry ×1).
-`aurum-monthly-train` is the same graph with one ECS state (`train`, Timeout 10800 s, **no
+`aurum-semimonthly-edgar` is the same graph with `ingest-edgar` (Retry ×1) in place of
+`ingest-market`. `aurum-monthly-train` is the same graph with one ECS state (`train`,
+Timeout 10800 s, **no
 Retry** — a one-hour fit that OOMs does not succeed on a blind second attempt, and it is
 the most expensive task in the account).
 

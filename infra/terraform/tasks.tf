@@ -213,9 +213,10 @@ resource "aws_ecs_task_definition" "ingest_edgar" {
   }])
 }
 
-# Every weeknight, immediately after the market ingest that feeds it. gold.mart_features is
-# only as fresh as the last build, and everything downstream reads it — so this rides the
-# daily state machine rather than sitting in front of the monthly training run.
+# Runs after EVERY ingest — every weeknight behind the market feeds, and again on the 1st
+# and 15th behind EDGAR. gold.mart_features is only as fresh as the last build and
+# everything downstream reads it, so this rides the ingest state machines rather than
+# sitting in front of the monthly training run.
 #
 # Seed first, then build: three seeds feed models downstream, and mart_feature_summary reads
 # the seeded Postgres table rather than the CSV.
@@ -270,13 +271,14 @@ resource "aws_ecs_task_definition" "dbt" {
   }])
 }
 
-# Monthly, on the 1st at 02:00 UTC. The whole modelling loop, in the order
+# Monthly, on the 1st at 12:00 UTC — after that morning's EDGAR ingest and the warehouse
+# build behind it, so the fit sees the freshest fundamentals. The whole modelling loop, in the order
 # docs/modeling/pipeline-runbook.md
 # describes: train on every feature, evaluate, rank features with SHAP, push the ranking into
 # the warehouse, retrain narrowed, evaluate, compare the two on the holdout, backtest.
 #
-# It reads gold.mart_features, which the previous weeknight's dbt build produced — running it
-# before that day's own ingest is deliberate, not an oversight (aws-deployment-plan.md §2.1).
+# It reads gold.mart_features, which the 06:00 EDGAR leg rebuilt that same morning
+# (aws-deployment-plan.md §2.1).
 #
 # The comparison is the point. Feature selection is a hypothesis, not an improvement — the
 # narrowed model has to match or beat the full one on holdout ICIR *and* decile spread. That
