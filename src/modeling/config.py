@@ -7,11 +7,36 @@ Every model forbids extra keys, so a mistyped one fails at load with the offendi
 key named rather than being silently ignored.
 """
 
+import os
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.utils.config_reader import read_config
+
+
+def _default_num_threads() -> int:
+    """LightGBM threads: 4 locally, whatever ``AURUM_NUM_THREADS`` says on a server.
+
+    The default below is tuned for an Apple Silicon laptop and its reasoning does not
+    travel — see ModelParams.num_threads. Fargate vCPUs are homogeneous, so a task given
+    8 of them should use 8, and pinning to 4 would leave half the task idle for the whole
+    fit. The ECS train task definition sets this; nothing sets it on a laptop.
+    """
+    # Stripped, so a whitespace-only value from a mis-rendered template reads as unset
+    # rather than as a parse error.
+    override = (os.getenv("AURUM_NUM_THREADS") or "").strip()
+    if not override:
+        return 4
+    try:
+        threads = int(override)
+    except ValueError as error:
+        raise ValueError(
+            f"AURUM_NUM_THREADS must be an integer, got {override!r}"
+        ) from error
+    if threads < 1:
+        raise ValueError(f"AURUM_NUM_THREADS must be >= 1, got {threads}")
+    return threads
 
 
 class SourceConfig(BaseModel):
@@ -193,7 +218,13 @@ class ModelParams(BaseModel):
     # boosting iteration ends at a barrier, so scheduling work onto the slow E-cores
     # makes all ten threads wait on the slowest. Four is usually faster than ten, and
     # markedly cooler.
-    num_threads: int = 4
+    #
+    # That argument is specific to a big.LITTLE laptop and does NOT hold on Fargate,
+    # where every vCPU is the same speed. A task sized at 8 vCPU that pinned this to 4
+    # would leave half of what it is paying for idle for the whole fit, so the ECS train
+    # task sets AURUM_NUM_THREADS to its vCPU count. An explicit value in the YAML still
+    # wins over both.
+    num_threads: int = Field(default_factory=_default_num_threads)
     # 63 rather than the default 255. The binned dataset is the dominant allocation,
     # and a quarter of the bins is a quarter of the memory plus faster histograms. The
     # features are already z-scores, deciles and ratios, so finer bins buy little on a

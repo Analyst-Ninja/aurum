@@ -373,7 +373,8 @@ These are not preferences; each one breaks the deployment if ignored.
 | 6 | The image carries no `.git` | `AURUM_GIT_SHA` must be injected, or every run stamps `{date}-unknown` and overwrites the previous version |
 | 7 | `BaseFeed.run()` swallows exceptions and reports `execution_status: FAILED` in a dict; `run_feed()` discards that dict and `cli.main()` ignores the return | **A failed feed exits 0.** Step Functions would record a green run. Must be fixed before anything is scheduled |
 | 8 | Env var names are fixed: `HOST`, `PORT`, `AURUM_USERNAME`, `AURUM_PASSWORD`, `SEC_USER_AGENT`, `AURUM_GIT_SHA` | `src/utils/env.py` uses `load_dotenv`, which does not override real process env — so ECS-injected values win with **no code change** |
-| 9 | Training needs ≥12 GB; 8 GB is OOM-killed with exit 137 ([training-container.md](../operations/training-container.md) §5) | The train task gets 16 GB. Unrelated to the DB instance size |
+| 9 | Training needs ≥12 GB; 8 GB is OOM-killed with exit 137 ([training-container.md](../operations/training-container.md) §5) | The train task gets 8 vCPU / 32 GB. Unrelated to the DB instance size |
+| 12 | `ModelParams.num_threads` defaults to 4, tuned for an Apple Silicon laptop's performance cores | Fargate vCPUs are homogeneous, so an 8 vCPU task pinned to 4 threads wastes half of what it pays for. The train task sets `AURUM_NUM_THREADS=8` |
 | 10 | `seeds/selected_features.csv` is committed | The first training run needs no prior SHAP pass |
 | 11 | The EDGAR configs have no watermark columns and `Database.write_data` appends with no unique index on `MD5_HASH` | **Every EDGAR run duplicates ~1.9M rows.** `python -m src.ingestion.truncate` runs before each config's load (§2.4). Discovered in Part 3, fixed in Part 4 |
 

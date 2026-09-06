@@ -290,16 +290,26 @@ resource "aws_ecs_task_definition" "dbt" {
 # baseline it is meant to be measured against. The suffix also publishes models/latest-full
 # and models/latest-narrow, which is how the later steps name their inputs.
 #
-# 16 GB because the training panel is ~2.9M x 228 and 8 GB gets OOM-killed with exit 137
-# (docs/operations/training-container.md §5). Its Step Functions state carries no Retry: a
-# one-hour fit that OOMs does not succeed on a blind second attempt, and this is the most
-# expensive task in the account.
+# 8 vCPU / 32 GB. LightGBM's histogram build is threaded, so the fit scales with cores and
+# this is the one task in the deployment where more vCPU actually buys wall time — the
+# ingest tasks are network-bound on Yahoo and SEC, and the dbt task is a thin client whose
+# work happens inside Postgres.
+#
+# Memory was 16 GB, chosen because 8 GB was OOM-killed with exit 137
+# (docs/operations/training-container.md §5). Doubled alongside the cores: TreeSHAP over a
+# ~2.9M x 228 panel is the memory peak of the run, not the fit, and 8 vCPU on Fargate
+# cannot be requested with less than 16 GB anyway.
+#
+# The cost of this is rounding error — the task runs about an hour a month, so ~$0.47.
+#
+# Its Step Functions state carries no Retry: a one-hour fit that OOMs does not succeed on
+# a blind second attempt, and this is the most expensive task in the account.
 resource "aws_ecs_task_definition" "train" {
   family                   = "${var.project}-train"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 4096
-  memory                   = 16384
+  cpu                      = 8192
+  memory                   = 32768
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
 
@@ -332,10 +342,16 @@ resource "aws_ecs_task_definition" "train" {
   }
 
   container_definitions = jsonencode([{
-    name        = var.project
-    image       = local.image
-    essential   = true
-    environment = local.environment
+    name      = var.project
+    image     = local.image
+    essential = true
+    # LightGBM's own thread count, not the task's. src/modeling/config.py defaults it to
+    # 4, tuned for an Apple Silicon laptop where the efficiency cores drag every boosting
+    # barrier. Fargate vCPUs are homogeneous, so this must track `cpu` above, or the task
+    # pays for 8 and uses 4.
+    environment = concat(local.environment, [
+      { name = "AURUM_NUM_THREADS", value = "8" },
+    ])
     secrets     = local.secrets
     mountPoints = local.mount_points
     logConfiguration = merge(local.log_configuration, {
