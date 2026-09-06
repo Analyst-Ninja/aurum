@@ -13,6 +13,20 @@ from src.utils.env import load_env
 
 load_env()
 
+# Rows per INSERT batch in write_data.
+#
+# Without it, pandas builds the parameter list for the WHOLE frame before sending
+# anything, so peak memory tracks row count rather than staying flat. That is fine for a
+# daily increment and fatal for a first load: with no watermark to resume from, a feed
+# pulls 503 symbols from 2000 to today in one frame, and the ingest task was OOM-killed
+# (exit 137, "OutOfMemoryError: container killed due to memory usage") writing it on
+# 8 GB — 2026-09-06, against a freshly rebuilt RDS with no landing tables.
+#
+# Chunking bounds the batch instead of the frame. It does not make the write faster and
+# is not meant to; pandas still issues one executemany per chunk.
+WRITE_CHUNK_ROWS = 50_000
+
+
 class Database(BaseDatasource):
 
     def __init__(self, config: Dict[str, Any]):
@@ -23,14 +37,14 @@ class Database(BaseDatasource):
         pass
 
     def write_data(self, run_date: str, data: pd.DataFrame) -> None:
-        # Fast bulk load method using PostgreSQL's COPY syntax
         self.connect()
-        self.logger.info(f"Writing data to {run_date}")
+        self.logger.info(f"Writing data to {run_date} ({len(data)} rows)")
         data.to_sql(
             name=self.config.get("table", ""),
             con=self.conn,
             if_exists='append',
-            index=False
+            index=False,
+            chunksize=WRITE_CHUNK_ROWS,
         )
 
         self.logger.info(f"Wrote data to {run_date}")
