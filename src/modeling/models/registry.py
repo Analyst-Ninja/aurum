@@ -26,8 +26,23 @@ TRACKED_PACKAGES = ("lightgbm", "pandas", "numpy", "pyarrow")
 
 
 def git_sha(short: bool = False) -> str:
-    """The commit this run came from, or ``unknown`` outside a repo."""
-    args = ["git", "rev-parse", "--short" if short else "HEAD"]
+    """The commit this run came from, or ``unknown`` outside a repo.
+
+    ``AURUM_GIT_SHA`` wins when set. The training container has neither git nor a
+    ``.git`` directory (both excluded from the image), so without the override every
+    containerised run would be stamped ``unknown`` — and two of them on the same day
+    would share a version id and overwrite each other. Compose passes the value
+    through; see docs/operations/training-container.md.
+    """
+    override = os.getenv("AURUM_GIT_SHA")
+    if override:
+        return override[:7] if short else override
+
+    # `--short` is a flag, not a substitute for the revision: `git rev-parse --short`
+    # without HEAD exits 128, so every short call fell into the `unknown` branch and
+    # every run of a day shared the version id `{date}-unknown` — and silently
+    # overwrote the previous one, model.txt included.
+    args = ["git", "rev-parse", *(["--short"] if short else []), "HEAD"]
     try:
         return subprocess.run(
             args, capture_output=True, text=True, check=True

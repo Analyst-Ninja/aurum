@@ -1,0 +1,38 @@
+# Training container for the Phase 6 modelling pipeline (GH-57).
+#
+#   docker compose -f docker-compose.modeling.yml run --rm trainer \
+#     train -c src/modeling/configs/lgbm_xs_excess_5d.yaml
+#
+# Arguments after `trainer` are passed straight to `python -m src.modeling.cli`.
+# See docs/operations/training-container.md.
+
+services:
+  trainer:
+    build:
+      context: .
+      dockerfile: docker/modeling.Dockerfile
+    image: aurum-trainer:local
+
+    # Credentials come from the same repo-root .env the host uses. Configs reference
+    # env var *names* (host: HOST), so nothing in src/modeling/configs/ changes.
+    env_file:
+      - .env
+
+    # ...except HOST. Postgres runs on the host machine, not in compose: the panel is
+    # ~2.9M rows and copying it into a throwaway database is the wrong trade for a
+    # local-first project. host.docker.internal is Docker Desktop's name for the host;
+    # extra_hosts makes it resolve on Linux too.
+    environment:
+      HOST: host.docker.internal
+      # The image carries no .git (and no git binary), so the registry cannot work out
+      # which commit a run came from — every containerised run would be stamped
+      # `{date}-unknown` and two on the same day would overwrite each other. Pass it in:
+      #   AURUM_GIT_SHA=$(git rev-parse HEAD) docker compose -f docker-compose.modeling.yml run --rm trainer train -c ...
+      AURUM_GIT_SHA: ${AURUM_GIT_SHA:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    # Artifacts and the Parquet training cache have to outlive the container.
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
