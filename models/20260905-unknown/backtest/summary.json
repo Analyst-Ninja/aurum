@@ -1,0 +1,77 @@
+{
+  "version": "20260905-unknown",
+  "backtested_at": "2026-09-05T19:57:20+00:00",
+  "horizon": 5,
+  "construction": {
+    "legs": "long decile 10, short decile 1, dollar-neutral, equal-weight",
+    "tranches": 5,
+    "headline_cost_bps": 10.0
+  },
+  "blocks": {
+    "Holdout \u2014 the quoted result": {
+      "start_date": "2024-10-01",
+      "end_date": "2026-08-25",
+      "n_dates": 476,
+      "mean_turnover_per_rebalance": 0.518313618441007,
+      "by_cost_bps": {
+        "0bps": {
+          "sharpe": 0.23166734437544054,
+          "mean_return": 0.0010408584463822781
+        },
+        "5bps": {
+          "sharpe": 0.11509768253218344,
+          "mean_return": 0.0005279892987232145
+        },
+        "10bps": {
+          "sharpe": -0.0014785681114916488,
+          "mean_return": 1.5120151064150803e-05
+        },
+        "20bps": {
+          "sharpe": -0.23463760566530464,
+          "mean_return": -0.001010618144253977
+        }
+      },
+      "break_even_bps": 10.1474074930532
+    }
+  },
+  "reality_checks": [
+    {
+      "check": "Randomization",
+      "value": "77.2th percentile (p = 0.228)",
+      "reads": "Sharpe against a null with the same book and no signal"
+    },
+    {
+      "check": "Signal lag (1 day)",
+      "value": "Sharpe -0.11 vs 0.23 gross",
+      "reads": "A collapse means same-bar information is leaking upstream"
+    },
+    {
+      "check": "Deflated Sharpe",
+      "value": "0.988 over 1 configs",
+      "reads": "Probability the Sharpe beats the best of that many noise strategies"
+    }
+  ],
+  "reality_checks_detail": {
+    "randomization": {
+      "n_shuffles": 500,
+      "actual_sharpe": 0.23166734437544054,
+      "percentile": 77.2,
+      "p_value": 0.22799999999999998,
+      "null_mean": -0.0032285341293889084,
+      "null_std": 0.3205131282184257
+    },
+    "signal_lag": {
+      "sharpe": -0.11182973962696822,
+      "mean_spread": -0.00045721258833992444,
+      "n_dates": 475
+    },
+    "deflated_sharpe": 0.9876511419004134
+  },
+  "assumptions": [
+    "Survivorship: <code>company_meta.csv</code> is today's S&amp;P 500 applied back to 2000, so every name in this test survived to be in the index.",
+    "Point-in-time lag is approximated (#47) \u2014 fundamentals are assumed available on a fixed lag rather than on their real filing date.",
+    "Labels overlap: consecutive 5-day forward returns share four of five days, which inflates any statistic computed on the daily series. Sharpe here is taken across five non-overlapping tranches for exactly this reason.",
+    "Borrow cost is assumed zero and every S&amp;P 500 name is assumed shortable. Both are assumptions, not facts.",
+    "Fills are assumed at <code>adj_close</code> with no slippage beyond the modelled cost. An execution model is Phase 7."
+  ]
+}

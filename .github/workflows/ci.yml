@@ -25,22 +25,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Ruff is a static analyser — it never imports project dependencies, so the
-      # lint job installs the dev group only. dbt lives in its own `dbt` group
-      # (see pyproject.toml) and is excluded from the default sync either way.
+      # tests/modeling imports lightgbm, pyarrow and scikit-learn, so the job needs
+      # the `modeling` group on top of the default sync (which already includes `dev`,
+      # and so ruff + pytest). dbt keeps its own group and stays out: dbt-core pulls
+      # dbt-core-experimental-parser, an sdist with no wheel, which --no-build cannot
+      # install. Every modeling dependency ships manylinux wheels, so --no-build holds.
       - name: Install dependencies
-        run: uv sync --locked --no-build --only-group dev
+        run: uv sync --locked --no-build --group modeling
 
       - name: Lint (ruff)
-        run: uv run --locked --no-build --only-group dev ruff check src/ main.py
+        run: uv run ruff check src/ main.py
 
-#      - name: Tests (pytest)
-#        run: |
-#          if [ -d tests ]; then
-#            uv run --locked --no-build pytest tests/ -v
-#          else
-#            echo "No tests/ directory yet — skipping"
-#          fi
+      - name: Tests (pytest)
+        run: uv run pytest tests/ -v
 
   sonarqube:
     name: SonarQube

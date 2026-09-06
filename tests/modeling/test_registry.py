@@ -55,6 +55,21 @@ def test_version_id_is_date_and_short_sha():
     assert sha == git_sha(short=True)
 
 
+def test_git_sha_prefers_the_env_override(monkeypatch):
+    """The training container has no .git, so the sha is passed in (GH-57)."""
+    monkeypatch.setenv("AURUM_GIT_SHA", "0123456789abcdef")
+
+    assert git_sha() == "0123456789abcdef"
+    assert git_sha(short=True) == "0123456"
+
+
+def test_git_sha_falls_back_to_git_when_the_override_is_empty(monkeypatch):
+    monkeypatch.setenv("AURUM_GIT_SHA", "")
+
+    # Either a real sha from this repo or "unknown" outside one — never the empty string.
+    assert git_sha(short=True)
+
+
 def test_save_run_writes_every_artifact(tmp_path, booster):
     directory = save_run(tmp_path, booster, _metadata(), {"features": ["a"]}, {"rows_in": 1})
 
