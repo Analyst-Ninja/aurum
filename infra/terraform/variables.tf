@@ -73,6 +73,7 @@ variable "log_retention_days" {
 variable "alert_email" {
   description = "Address the Step Functions Catch states and the budget alarms publish to. No default on purpose — an unset address means failures are silent. The SNS subscription lands as `pending confirmation`; the link in the confirmation email has to be clicked once."
   type        = string
+  default     = "r.kumar01@hotmail.com"
 }
 
 variable "monthly_budget_usd" {
