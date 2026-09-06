@@ -165,7 +165,6 @@ dependencies = [
     { name = "psycopg2-binary" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "pytest-cov" },
     { name = "pytickertick" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -182,6 +181,7 @@ dev = [
     { name = "jupyter" },
     { name = "plotly" },
     { name = "pytest" },
+    { name = "pytest-cov" },
     { name = "ruff" },
 ]
 modeling = [
@@ -201,7 +201,6 @@ requires-dist = [
     { name = "psycopg2-binary", specifier = ">=2.9.12" },
     { name = "pydantic", specifier = "==2.13.5" },
     { name = "pydantic-settings", specifier = "==2.15.0" },
-    { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "pytickertick", specifier = ">=1.0.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "requests", specifier = ">=2.34.2" },
@@ -216,6 +215,7 @@ dev = [
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "plotly", specifier = ">=6.9.0" },
     { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "ruff", specifier = ">=0.15.21" },
 ]
 modeling = [
