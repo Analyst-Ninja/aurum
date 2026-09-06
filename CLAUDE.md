@@ -12,7 +12,8 @@ What actually exists and runs today:
 - `src/transformation/aurum_dwh/` — a dbt project pointed at **Postgres** (not Snowflake), with the full medallion **bronze**, **silver** and **gold** layers built and tested: 8 `br_*` mirrors, 3 `stg_*` models, 5 `int_*` feature models, 4 `mart_*` marts, 3 seeds, 237 tests (2 warn on documented real-data outliers, 0 error). The `dbt init` example models are gone. `gold.mart_features` holds ~2.9M rows across 503 symbols, 2000 → today. `docs/warehouse/dwh-medallion.md` documents it as built.
 - `src/feed/`, `src/inference/`, `src/mcp/`, `airflow/`, `infra/` — empty `__init__.py` placeholders. `main.py` is empty.
 - **Phase 6 (modeling) is built** (#51–#57). `docs/modeling/` (6 docs) specifies preprocessing, purged walk-forward training, SHAP selection, backtesting and the retraining policy; tracked as epic [#50](https://github.com/Analyst-Ninja/aurum/issues/50) with children #51–#57. Primary target `fwd_ret_5d_excess`, LightGBM regression, flat-file registry under `models/`. `docs/modeling/pipeline-runbook.md` walks the 11-step run.
-- `tests/` holds 91 unit tests over `src/modeling/` and the pytest step in CI is live (GH-57). `docker/modeling.Dockerfile` + `docker-compose.modeling.yml` run the modelling CLI against a pinned dependency set — training only, no Airflow/MLflow/serving.
+- `tests/` holds 95 unit tests over `src/modeling/` and `src/ingestion/`, and the pytest step in CI is live (GH-57). `docker/aurum.Dockerfile` + `docker/entrypoint.sh` + `docker-compose.modeling.yml` run **all three** workloads — ingestion, dbt and modelling — against a pinned dependency set. No Airflow/MLflow/serving.
+- **AWS deployment is planned, not built** — epic [#71](https://github.com/Analyst-Ninja/aurum/issues/71): RDS Postgres, one image on ECR run as ECS Fargate tasks, Step Functions schedules (market daily, EDGAR monthly, dbt+train weekly), Terraform in `infra/terraform/`. `docs/infra/aws-deployment-plan.md` is the plan; `infra/` is still an empty placeholder.
 
 `README.md` ("Current state") and `docs/ingestion/datasource-framework.md` describe the code as it is; `docs/architecture/TECHNICAL_SPEC.md` describes the target. `repo_structure.md` is an aspirational tree and does not match `src/`.
 
@@ -55,16 +56,20 @@ uv run python -m src.modeling.cli backtest        -c ... --version latest   # wr
 uv run python -m src.modeling.cli compare         -c ..._narrow.yaml --version <narrow> --baseline <full>
 uv run python -m src.modeling.cli predict         -c ... --version latest --asof 2026-09-05
 
-# the same CLI inside the pinned training image (GH-57). Entrypoint is
-# `python -m src.modeling.cli`, so args after `trainer` are subcommands.
+# all three workloads inside the one pinned image (GH-57, widened in GH-72). The first arg
+# after `trainer` picks the workload — ingest | dbt | model — and the rest goes to that CLI.
 # Reaches the HOST's Postgres via host.docker.internal; ./models and ./data are bind-mounted.
 docker compose -f docker-compose.modeling.yml build trainer
-docker compose -f docker-compose.modeling.yml run --rm trainer train -c src/modeling/configs/lgbm_xs_excess_5d.yaml
+docker compose -f docker-compose.modeling.yml run --rm trainer model train -c src/modeling/configs/lgbm_xs_excess_5d.yaml
+docker compose -f docker-compose.modeling.yml run --rm trainer ingest -c src/ingestion/configs/yahoo/ohlcv_1d.yaml -f False
+docker compose -f docker-compose.modeling.yml run --rm trainer dbt build --select bronze
 ```
 
 Add dependencies with `uv add <pkg>` — CI runs `--locked` and fails on `pyproject.toml`/`uv.lock` drift.
 
 **Dependency groups.** `dbt-postgres` sits in a `dbt` group rather than `[project].dependencies`, because dbt is a CLI that `src/` never imports. This keeps it out of the default sync: `dbt-core` pulls `dbt-core-experimental-parser`, which publishes an sdist with no wheel and so cannot install under CI's `--no-build`. **Anything importable by the default runtime path (`src/ingestion`, `main.py`) belongs in `[project].dependencies`; optional subsystems and tooling get their own group.** The rule used to read "anything importable by `src/`"; it was amended for the planned `modeling` group (`lightgbm`, `shap`, `scikit-learn`, …), which `src/modeling/` genuinely imports — pulling a ~400 MB ML stack into the ingestion runtime to satisfy the wording is the worse trade. Unlike `dbt-core`, every modeling dependency ships manylinux wheels, so `--no-build` still holds. See `docs/modeling/training-and-retraining.md` §9.2.
+
+The container image is the one place that relaxes this: `docker/aurum.Dockerfile` runs `uv sync` twice — once with `--no-build --group modeling` (cached, mirrors CI), then again with `--group dbt --group modeling` **without** `--no-build`, because the image has to run dbt. CI's install path is untouched.
 
 ## Ingestion framework (`src/ingestion/`)
 
