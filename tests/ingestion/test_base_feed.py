@@ -121,3 +121,80 @@ def test_a_failure_mid_stream_is_reported_not_raised(feed_parts):
 
     assert metrics["execution_status"] == "FAILED"
     assert "connection reset" in metrics["error_message"]
+
+
+class _MetaFeed(_Feed):
+    def __init__(self, key_columns):
+        super().__init__(_Source([]), _Sink())
+        self.config = {
+            "output_datasource": {"cols_for_pk": key_columns, "primary_key": "MD5_HASH"}
+        }
+
+
+def _legacy_hash(frame, key_columns):
+    """The pre-vectorisation implementation, kept here as the oracle.
+
+    MD5_HASH is the primary key and rows already in the landing tables carry values
+    produced by this code. A change in the digest would silently break idempotency, so
+    the fast path is asserted equal to the slow one rather than merely 'looking right'.
+    """
+    import hashlib
+
+    values = frame[key_columns].astype("string").fillna("<NULL>")
+    return values.apply(
+        lambda row: hashlib.md5(
+            "||".join(f"{c}={row[c]}" for c in key_columns).encode("utf-8")
+        ).hexdigest(),
+        axis=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "key_columns, frame",
+    [
+        (["SYMBOL"], pd.DataFrame({"SYMBOL": ["AAPL", "MSFT"]})),
+        (
+            ["SYMBOL", "DATE"],
+            pd.DataFrame({"SYMBOL": ["AAPL", "MSFT"], "DATE": ["2026-09-06", "2026-09-05"]}),
+        ),
+        (
+            ["SYMBOL", "QTR", "CONCEPT"],
+            pd.DataFrame(
+                {
+                    "SYMBOL": ["AAPL", "MSFT", "GOOG"],
+                    "QTR": ["Q1", "Q2", None],
+                    "CONCEPT": ["Revenue", None, "Assets"],
+                }
+            ),
+        ),
+    ],
+)
+def test_hash_matches_the_pre_vectorisation_implementation(key_columns, frame):
+    feed = _MetaFeed(key_columns)
+
+    out = feed._add_write_metadata(frame, "2026-09-06", "exec-1")
+
+    pd.testing.assert_series_equal(
+        out["MD5_HASH"], _legacy_hash(frame, key_columns), check_names=False
+    )
+
+
+def test_hash_is_a_known_constant():
+    """A literal, so a future refactor of both paths at once still fails here."""
+    import hashlib
+
+    expected = hashlib.md5(b"SYMBOL=AAPL||DATE=2026-09-06").hexdigest()
+    feed = _MetaFeed(["SYMBOL", "DATE"])
+
+    out = feed._add_write_metadata(
+        pd.DataFrame({"SYMBOL": ["AAPL"], "DATE": ["2026-09-06"]}), "2026-09-06", "e"
+    )
+
+    assert out["MD5_HASH"].iloc[0] == expected
+
+
+def test_missing_key_columns_still_raise():
+    feed = _MetaFeed(["SYMBOL", "MISSING"])
+
+    with pytest.raises(ValueError, match="Primary-key columns missing"):
+        feed._add_write_metadata(pd.DataFrame({"SYMBOL": ["AAPL"]}), "2026-09-06", "e")

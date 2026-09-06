@@ -283,9 +283,14 @@ not reverted: no NAT gateway, no interface VPC endpoints, default VPC, SSM Param
 instead of Secrets Manager, one image, flat Terraform. Together they still avoid ~$61/mo, and
 none of them cost anything in capability.
 
-`db_instance_class` is a variable. Dropping to `db.t4g.small` (~$24/mo, total ~$30) is one
-apply if the weekly build turns out not to need the headroom — but note it reintroduces credit
-burn, which is what caused the original stall.
+`db_instance_class` is a variable, and **its default is `db.m7g.large`, deliberately.** The
+default was left at `db.t4g.medium` after the resize was made by hand, and a later
+destroy-and-recreate silently reverted the instance to a burstable class — CPU credits at 29
+of a possible 576, throttling to a 20% baseline the moment a build started. The default is
+what a rebuild falls back to, so it has to encode the decision, not the pre-decision state.
+
+Dropping to a burstable class is one apply if the build turns out not to need the headroom,
+but note it reintroduces credit burn, which is what caused the original stall.
 
 ### Network exposure
 
@@ -392,7 +397,7 @@ Rename `docker/modeling.Dockerfile` → **`docker/aurum.Dockerfile`**. New `dock
   `uv sync --locked --group dbt --group modeling --no-install-project` **without** `--no-build`.
   Copy all of `src/` and `docker/`. Run `dbt deps` at build time (constraint 3).
 - `ENV DBT_PROFILES_DIR=/app/docker/dbt`. The profile templates `{{ env_var('HOST') }}`,
-  `PORT`, `AURUM_USERNAME`, `AURUM_PASSWORD`, `dbname: aurum`, `schema: bronze`, `threads: 2`.
+  `PORT`, `AURUM_USERNAME`, `AURUM_PASSWORD`, `dbname: aurum`, `schema: bronze`, `threads: 4`.
 - `docker/entrypoint.sh` — dispatch on the first argument: `ingest` → `python -m src.ingestion.cli`,
   `dbt` → `cd` to the project dir then `dbt`, `model` → `python -m src.modeling.cli`. Anything else
   is `exec`'d verbatim so `sh` and `--help` still work.

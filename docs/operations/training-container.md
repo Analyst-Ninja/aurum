@@ -126,9 +126,13 @@ dbt checks the working directory before `~/.dbt`, so a committed `profiles.yml` 
 project directory would silently hijack **every host run** — `uv run --group dbt dbt debug`
 on your machine must keep resolving `~/.dbt/profiles.yml`, and it does.
 
-It also sets `threads: 2` rather than the host profile's 4, sized for the 1 GB
-`db.t4g.micro` the AWS deployment targets
-([aws-deployment-plan.md](../infra/aws-deployment-plan.md) §5).
+It also sets `threads: 4`, matching the host profile. This was `2`, sized for the 1 GB
+`db.t4g.micro` the deployment originally targeted, where four concurrent
+window-function-heavy models exhausted the instance. RDS is `db.m7g.large` now — 2 vCPU,
+8 GB, non-burstable — and two threads left it idle for most of the build
+([aws-deployment-plan.md](../infra/aws-deployment-plan.md) §5). Raise it only alongside
+the instance class: threads beyond the database's vCPU count add contention, not
+throughput.
 
 ### Artifacts live on the host
 
