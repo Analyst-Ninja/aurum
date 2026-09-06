@@ -74,6 +74,24 @@ resource "aws_security_group" "data" {
     security_groups = [aws_security_group.tasks.id]
   }
 
+  # Direct Postgres access from outside the VPC, for local psql/dbt/DBeaver sessions.
+  #
+  # With the default 0.0.0.0/0 this database is reachable from the entire internet and the
+  # master password is the only thing in front of it — Postgres on a public IP is scanned
+  # continuously. Narrow this to a /32 when convenient, or move to a Tailscale subnet
+  # router or an SSM port-forward and set db_publicly_accessible = false.
+  dynamic "ingress" {
+    for_each = length(var.db_ingress_cidrs) > 0 ? [1] : []
+
+    content {
+      description = "Postgres from operator networks"
+      from_port   = 5432
+      to_port     = 5432
+      protocol    = "tcp"
+      cidr_blocks = var.db_ingress_cidrs
+    }
+  }
+
   tags = { Name = "${var.project}-data" }
 }
 

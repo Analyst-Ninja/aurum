@@ -2,7 +2,9 @@
 
 **Version:** 1.0
 **Date:** 2026-07-12
-**Status:** Design approved
+**Status:** Design approved — **§1 partly superseded by
+[`../infra/aws-deployment-plan.md`](../infra/aws-deployment-plan.md)** (epic
+[#71](https://github.com/Analyst-Ninja/aurum/issues/71)); see the note in §1
 **Parent spec:** [TECHNICAL_SPEC.md](../architecture/TECHNICAL_SPEC.md)
 
 ---
@@ -19,9 +21,37 @@ Terraform manages AURUM's **declarative, stateful infrastructure**; docker-compo
 | Kafka broker, Postgres server, Airflow (containers) | docker-compose (`infra/docker-compose.yml`) | Runtime processes; dev loop needs fast restarts |
 | Table DDL inside Snowflake (RAW tables, marts) | Airflow (RAW) + dbt (SILVER/GOLD) | Data-layer schema belongs to the pipeline, not TF |
 | Landing table DDL in Postgres | App migrations (SQL files applied by consumers/Airflow) | Same reasoning |
-| EDGAR producer host | Local machine, no IaC | SEC blocks cloud IPs — this stays a local process by design |
+| EDGAR producer host | ~~Local machine, no IaC~~ **ECS Fargate** | ~~SEC blocks cloud IPs — this stays a local process by design~~ **Measured false, 2026-09-06 — see the note below** |
 
-**Non-goals:** no cloud provider (no AWS/GCP footprint in v2), no Kubernetes, no TF-managed containers, no CI pipeline yet (single operator).
+~~**Non-goals:** no cloud provider (no AWS/GCP footprint in v2), no Kubernetes, no TF-managed
+containers, no CI pipeline yet (single operator).~~
+
+> ### Superseded, 2026-09-06
+>
+> Two statements above are no longer true. They are struck through rather than deleted, because
+> the reasoning that produced them is still worth reading.
+>
+> **"No cloud provider."** AURUM now deploys to AWS — RDS Postgres, one image on ECR run as ECS
+> Fargate tasks, Step Functions schedules, all under Terraform in `infra/terraform/`. See
+> [`../infra/aws-deployment-plan.md`](../infra/aws-deployment-plan.md), epic
+> [#71](https://github.com/Analyst-Ninja/aurum/issues/71).
+>
+> **"SEC blocks cloud IPs."** This was never measured, and it is wrong for this deployment.
+> Probed from a Fargate task in `us-east-1` on 2026-09-06, egress IP `32.198.113.156`, with the
+> honest `SEC_USER_AGENT` from SSM:
+>
+> | Endpoint | Status |
+> |---|---|
+> | `www.sec.gov/cgi-bin/browse-edgar` | **200**, 16,501 bytes |
+> | `data.sec.gov/submissions/CIK0000320193.json` | **200**, 164,121 bytes |
+> | `data.sec.gov/api/xbrl/companyconcept/...` | **200**, 2,252 bytes |
+>
+> What SEC actually enforces is the honest `User-Agent` and the 10 req/s cap, both of which the
+> ingestion framework already respects. EDGAR ingestion therefore runs on ECS on a monthly
+> schedule like everything else.
+>
+> The rest of this document — the Snowflake, Kafka and Postgres module design — describes a
+> target that has not been built and is not part of epic #71.
 
 ## 2. Layout
 

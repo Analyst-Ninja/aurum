@@ -21,9 +21,14 @@ locals {
     { name = "AURUM_GIT_SHA", value = var.image_tag },
   ]
 
-  db_secrets = [
+  # SEC_USER_AGENT is not EDGAR-only. src/ingestion/datasources/api/yahoo/ohlcv.py calls
+  # get_sec_user_agent() in its constructor, because the S&P 500 universe is scraped from
+  # Wikipedia — which, like SEC, refuses anonymous traffic. Scoping this to the EDGAR task
+  # made the market feed die before it read a single row. Every task gets it.
+  secrets = [
     { name = "AURUM_USERNAME", valueFrom = aws_ssm_parameter.db_username.arn },
     { name = "AURUM_PASSWORD", valueFrom = aws_ssm_parameter.db_password.arn },
+    { name = "SEC_USER_AGENT", valueFrom = aws_ssm_parameter.sec_user_agent.arn },
   ]
 
   log_configuration = {
@@ -89,7 +94,7 @@ resource "aws_ecs_task_definition" "ingest_market" {
     image       = local.image
     essential   = true
     environment = local.environment
-    secrets     = local.db_secrets
+    secrets     = local.secrets
     mountPoints = local.mount_points
     logConfiguration = merge(local.log_configuration, {
       options = merge(local.log_configuration.options, { "awslogs-stream-prefix" = "ingest-market" })
@@ -142,8 +147,7 @@ resource "aws_ecs_task_definition" "ingest_edgar" {
     image       = local.image
     essential   = true
     environment = local.environment
-    # SEC returns 403 without an honest User-Agent, so this task gets the extra secret.
-    secrets     = concat(local.db_secrets, [{ name = "SEC_USER_AGENT", valueFrom = aws_ssm_parameter.sec_user_agent.arn }])
+    secrets     = local.secrets
     mountPoints = local.mount_points
     logConfiguration = merge(local.log_configuration, {
       options = merge(local.log_configuration.options, { "awslogs-stream-prefix" = "ingest-edgar" })
@@ -195,7 +199,7 @@ resource "aws_ecs_task_definition" "dbt" {
     image       = local.image
     essential   = true
     environment = local.environment
-    secrets     = local.db_secrets
+    secrets     = local.secrets
     mountPoints = local.mount_points
     logConfiguration = merge(local.log_configuration, {
       options = merge(local.log_configuration.options, { "awslogs-stream-prefix" = "dbt" })
@@ -249,7 +253,7 @@ resource "aws_ecs_task_definition" "train" {
     image       = local.image
     essential   = true
     environment = local.environment
-    secrets     = local.db_secrets
+    secrets     = local.secrets
     mountPoints = local.mount_points
     logConfiguration = merge(local.log_configuration, {
       options = merge(local.log_configuration.options, { "awslogs-stream-prefix" = "train" })

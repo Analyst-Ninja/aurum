@@ -35,9 +35,21 @@ variable "image_tag" {
 }
 
 variable "db_instance_class" {
-  description = "RDS instance class. db.t4g.micro is 1 GB of RAM and is the reason the container dbt profile uses threads: 2 — see docs/infra/aws-deployment-plan.md §5. Resizing to db.t4g.small costs ~$12/mo more and breaks the $20 ceiling."
+  description = "RDS instance class. Was db.t4g.micro; its CPU credit balance hit zero during the first backfill and the instance throttled to baseline, stalling both ingestion and dbt. m7g is non-burstable, so there are no credits to exhaust. This is the single largest line in the bill — see docs/infra/aws-deployment-plan.md §5."
   type        = string
-  default     = "db.t4g.micro"
+  default     = "db.m7g.large"
+}
+
+variable "db_publicly_accessible" {
+  description = "Give RDS a public IP. Only meaningful alongside db_ingress_cidrs — the security group still decides who may connect."
+  type        = bool
+  default     = true
+}
+
+variable "db_ingress_cidrs" {
+  description = "CIDRs allowed to reach Postgres from outside the VPC, on top of the ECS task security group. 0.0.0.0/0 exposes the database to the whole internet; the master password is then the only control in front of it."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
 }
 
 variable "db_allocated_storage" {
