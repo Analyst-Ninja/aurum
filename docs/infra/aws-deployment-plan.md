@@ -333,10 +333,16 @@ source now filters on `default-for-az`, giving six.
 **`engine_version = "17"` resolved to 17.9.** The major-only pin behaved as intended: no exact
 minor to drift against `auto_minor_version_upgrade`.
 
-**The task definitions had to be applied twice.** `var.image_tag` defaults to `latest`, and ECR
-had no such tag until `make push` ran. Apply, push, then re-apply with
-`-var="image_tag=$(git rev-parse --short HEAD)"` — or pass the tag on the first apply if the
-image is already there.
+**The task definitions had to be applied twice.** `var.image_tag` used to default to `latest`,
+and ECR had no such tag. It never would have: `aws_ecr_repository.aurum` is `IMMUTABLE`, so a
+floating tag cannot be re-pointed and `make push` deliberately pushes SHA-only. A task
+definition referencing it fails the pull with
+`CannotPullContainerError: ... aurum:latest: not found`, after seven retries.
+
+The default is now **removed**, with a `validation` block that rejects `latest` outright.
+Every apply passes the tag: `terraform apply -var="image_tag=$(git rev-parse --short HEAD)"`,
+which is the line `make push` prints when it finishes. Push first, then apply — a tag that is
+not in ECR yet plans fine and fails at run time.
 
 ### Verified by hand
 
@@ -514,6 +520,7 @@ link. Until someone does, every failure is silent.
 | `models/latest` missing | no train has run against this EFS filesystem yet | run `aurum-monthly-train` once by hand |
 | dbt profile not found | `DBT_PROFILES_DIR` or the working directory | the entrypoint `cd`s to `/app/src/transformation/aurum_dwh`; profiles come from `docker/dbt/` |
 | Model version stamped `{date}-unknown` | the image carries no `.git` | `AURUM_GIT_SHA = var.image_tag` — apply with `-var="image_tag=$(git rev-parse --short HEAD)"` |
+| `CannotPullContainerError: ... not found` after 7 retries | the task definition names a tag that is not in ECR — classically `latest`, which an IMMUTABLE repository never has | `make push`, then apply with the short SHA it printed. `var.image_tag` has no default and rejects `latest` |
 | EDGAR row counts doubling | an image predating the truncate step | §2.4 |
 | A failure produced no email | the SNS subscription is still `pending confirmation` | click the link once |
 

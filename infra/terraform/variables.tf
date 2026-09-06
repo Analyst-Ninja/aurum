@@ -29,9 +29,13 @@ variable "sec_user_agent" {
 }
 
 variable "image_tag" {
-  description = "ECR image tag the task definitions run, normally `git rev-parse --short HEAD`. Also injected as AURUM_GIT_SHA so the model registry stamps a real commit instead of `unknown`."
+  description = "ECR image tag the task definitions run — the short SHA `make push` printed. Also injected as AURUM_GIT_SHA, so the model registry stamps a real commit instead of `unknown`. No default on purpose: the repository is IMMUTABLE, so a floating tag like `latest` can never be re-pointed and never exists, and a task definition referencing one fails the pull with `CannotPullContainerError ... not found`. Pass it explicitly: `terraform apply -var=\"image_tag=$(git rev-parse --short HEAD)\"`."
   type        = string
-  default     = "latest"
+
+  validation {
+    condition     = var.image_tag != "latest"
+    error_message = "image_tag cannot be \"latest\": aws_ecr_repository.aurum is IMMUTABLE, so that tag is never pushed and the task pull fails with CannotPullContainerError. Use the short SHA `make push` printed."
+  }
 }
 
 variable "db_instance_class" {
