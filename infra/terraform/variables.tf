@@ -41,7 +41,7 @@ variable "image_tag" {
 variable "db_instance_class" {
   description = "RDS instance class. Was db.t4g.micro; its CPU credit balance hit zero during the first backfill and the instance throttled to baseline, stalling both ingestion and dbt. m7g is non-burstable, so there are no credits to exhaust. This is the single largest line in the bill (~$118/mo, against ~$49 for db.t4g.medium) — see docs/infra/aws-deployment-plan.md §5. The default deliberately matches the decision recorded there rather than a cheaper burstable class: the default is what a destroy-and-recreate falls back to, and on 2026-09-06 that silently reverted a resize made by hand."
   type        = string
-  default     = "db.m7g.large"
+  default     = "db.t3.medium"
 }
 
 variable "db_publicly_accessible" {
