@@ -16,7 +16,7 @@ def get_sec_symbols(user_agent: str | None, timeout: int = 100) -> list[str]:
     in ``.env`` (loaded via CoreConfig), e.g. ``AURUM-Project you@example.com``.
     """
     if not user_agent:
-        raise Exception(
+        raise ValueError(
             "SEC_USER_AGENT is not set — SEC requires an honest User-Agent"
         )
     response = requests.get(
@@ -33,7 +33,7 @@ def get_snp500_symbols(user_agent: str | None, timeout: int = 100) -> list[str]:
     honest ``User-Agent`` (same convention as SEC) and hand the HTML to pandas.
     """
     if not user_agent:
-        raise Exception(
+        raise ValueError(
             "SEC_USER_AGENT is not set — Wikipedia rejects the default User-Agent"
         )
     response = requests.get(

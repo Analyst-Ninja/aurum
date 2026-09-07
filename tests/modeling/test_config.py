@@ -46,12 +46,16 @@ def test_unknown_key_raises_naming_the_key(tmp_path):
 def test_unknown_nested_key_raises_naming_the_key(tmp_path):
     config = {**VALID, "source": {**VALID["source"], "schema": "gold"}}
 
+    path = write_config(tmp_path, config)
+
     with pytest.raises(ValidationError, match="schema"):
-        load_config(write_config(tmp_path, config))
+        load_config(path)
 
 
 def test_missing_required_key_raises(tmp_path):
     config = {**VALID, "source": {k: v for k, v in VALID["source"].items() if k != "table"}}
 
+    path = write_config(tmp_path, config)
+
     with pytest.raises(ValidationError, match="table"):
-        load_config(write_config(tmp_path, config))
+        load_config(path)

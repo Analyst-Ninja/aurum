@@ -48,7 +48,7 @@ RUN uv sync --locked --no-build --group modeling --no-install-project
 # dbt-core-experimental-parser, which publishes an sdist with no wheel. That is the whole
 # reason the dbt group is isolated from [project].dependencies (see pyproject.toml) — CI's
 # install path keeps --no-build; only the image relaxes it, and only for this group.
-RUN uv sync --locked --group dbt --group modeling --no-install-project
+RUN uv sync --locked --group dbt --group modeling --no-install-project # NOSONAR - see above
 
 # Then the source, which changes on every commit. src/transformation/ is included: the
 # image runs dbt, and the model registry reads the dbt manifest for its lineage hash.
@@ -58,7 +58,9 @@ COPY main.py ./
 
 # dbt_packages/ is gitignored, so it is not in the build context. Vendor the packages at
 # build time or `dbt build` fails at runtime on a missing dbt_utils.
-RUN cd /app/src/transformation/aurum_dwh && dbt deps
+WORKDIR /app/src/transformation/aurum_dwh
+RUN dbt deps
+WORKDIR /app
 
 # Non-root. On AWS the EFS access point is configured with the same uid/gid so the
 # bind-mounted models/ and data/ are writable; locally they are host-owned, so override

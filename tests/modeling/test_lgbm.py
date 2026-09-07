@@ -102,7 +102,8 @@ def test_fit_fold_early_stops_on_ic():
     # Stopped before the cap, on the IC metric, having found the planted signal.
     assert 0 < fit.best_iteration <= PARAMS["n_estimators"]
     assert fit.best_ic > 0.1
-    assert fit.n_train > 0 and fit.n_valid > 0
+    assert fit.n_train > 0
+    assert fit.n_valid > 0
 
 
 def test_fit_fold_records_its_window():

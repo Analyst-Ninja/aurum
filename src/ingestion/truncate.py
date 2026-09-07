@@ -106,7 +106,7 @@ def main():
     try:
         truncate_landing_table(args.config, args.run_date)
     except (SQLAlchemyError, ValueError, OSError) as error:
-        logging.error("Truncate failed for %s: %s", args.config, error)
+        logging.exception("Truncate failed for %s: %s", args.config, error)
         sys.exit(1)
 
 

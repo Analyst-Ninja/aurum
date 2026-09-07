@@ -257,8 +257,17 @@ resource "aws_ssm_parameter" "sec_user_agent" {
 # The topic lives here because the task role's sns:Publish has to be scoped to an ARN.
 # GH-75 adds the email subscription, the Step Functions Catch states and the alarms.
 
+# The AWS-managed SNS key rather than a customer-managed one: the only publishers are
+# the Step Functions Catch states, which are IAM principals in this account, so the
+# managed key's policy is enough and there is no $1/month key to carry. The budget
+# notifications do not route through here — they subscribe var.alert_email directly.
+data "aws_kms_alias" "sns" {
+  name = "alias/aws/sns"
+}
+
 resource "aws_sns_topic" "alerts" {
-  name = "${var.project}-alerts"
+  name              = "${var.project}-alerts"
+  kms_master_key_id = data.aws_kms_alias.sns.target_key_arn
 }
 
 # --- IAM ---------------------------------------------------------------------------
@@ -330,6 +339,47 @@ resource "aws_s3_bucket_public_access_block" "artifacts" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+# Encryption at rest is above; this is encryption in transit. Without it a presigned
+# URL fetched over plain HTTP would put the run's positions on the wire in clear.
+data "aws_iam_policy_document" "artifacts_https_only" {
+  statement {
+    sid     = "DenyInsecureTransport"
+    effect  = "Deny"
+    actions = ["s3:*"]
+
+    resources = [
+      aws_s3_bucket.artifacts.arn,
+      "${aws_s3_bucket.artifacts.arn}/*",
+    ]
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
+  policy = data.aws_iam_policy_document.artifacts_https_only.json
+}
+
+# Server access logging into the bucket's own `s3-access-logs/` prefix. A separate log
+# bucket is the textbook shape, but it is a second bucket to encrypt, block and expire
+# for a bucket that sees two writes a month; the lifecycle rule below expires the log
+# objects along with the runs, so self-logging cannot compound.
+resource "aws_s3_bucket_logging" "artifacts" {
+  bucket        = aws_s3_bucket.artifacts.id
+  target_bucket = aws_s3_bucket.artifacts.id
+  target_prefix = "s3-access-logs/"
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {

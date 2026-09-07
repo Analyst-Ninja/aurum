@@ -112,7 +112,7 @@ def read_declared_types(engine: Engine, schema: str, table: str) -> dict[str, st
         rows = connection.execute(query, {"schema": schema, "table": table}).all()
     if not rows:
         raise ValueError(f"{schema}.{table} does not exist")
-    return {name: data_type for name, data_type in rows}
+    return dict(rows)
 
 
 def _download(engine: Engine, query: str, schema: pa.Schema, path: Path) -> None:

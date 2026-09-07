@@ -41,7 +41,8 @@ def test_only_the_strongest_member_of_a_cluster_is_selected():
     ranking = _ranking([5.0, 4.0, 3.0], clusters=[1, 1, 2])
     selected, _ = apply_cutoff(ranking, cum_share=0.95, max_features=40)
     chosen = set(selected.loc[selected["selected"], "feature_name"])
-    assert "f0" in chosen and "f1" not in chosen
+    assert "f0" in chosen
+    assert "f1" not in chosen
 
 
 def test_perfectly_correlated_features_share_a_cluster():

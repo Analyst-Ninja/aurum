@@ -69,7 +69,7 @@ def icir(ic: pd.Series) -> float:
     if len(ic) < 2:
         return float("nan")
     spread = float(ic.std(ddof=1))
-    if spread == 0.0:
+    if np.isclose(spread, 0.0, rtol=1e-09, atol=1e-09):
         return float("nan")
     return float(ic.mean() / spread * np.sqrt(TRADING_DAYS))
 
@@ -171,7 +171,7 @@ def sharpe(returns: pd.Series, horizon: int) -> float:
     if len(returns) < 2:
         return float("nan")
     spread = float(returns.std(ddof=1))
-    if spread == 0.0:
+    if np.isclose(spread, 0.0, rtol=1e-09, atol=1e-09):
         return float("nan")
     return float(returns.mean() / spread * np.sqrt(TRADING_DAYS / horizon))
 
@@ -234,7 +234,7 @@ def r2(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     if len(frame) < 2:
         return float("nan")
     total = float(((frame["y"] - frame["y"].mean()) ** 2).sum())
-    if total == 0.0:
+    if np.isclose(total, 0.0, rtol=1e-09, atol=1e-09):
         return float("nan")
     return float(1.0 - ((frame["y"] - frame["p"]) ** 2).sum() / total)
 

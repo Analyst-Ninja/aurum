@@ -252,7 +252,8 @@ def export(args: argparse.Namespace) -> None:
     upload_run(config.output_dir, args.version, config.export)
 
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
+    """Every subcommand takes --config; the rest are per-command extras."""
     parser = argparse.ArgumentParser(description="Modelling CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -281,25 +282,33 @@ def main() -> None:
                 help="Full-feature run to compare --version against",
             )
 
-    args = parser.parse_args()
+    return parser
+
+
+# One entry per implemented subcommand. A table rather than an if/elif chain: the chain
+# grew one branch per command and tripped Sonar's cognitive-complexity ceiling, and the
+# dispatch is a lookup, not a decision.
+# Every entry is a lambda so the target is looked up in module globals at call time,
+# which keeps `monkeypatch.setattr(cli, "train", ...)` working.
+_DISPATCH = {
+    "train": lambda args: train(args),
+    "evaluate": lambda args: run_evaluate(args.config, args.version),
+    "predict": lambda args: predict(args),
+    "select-features": lambda args: run_select_features(args.config, args.version),
+    "backtest": lambda args: run_backtest(args.config, args.version),
+    "compare": lambda args: compare(args),
+    "export": lambda args: export(args),
+}
+
+
+def main() -> None:
+    args = _build_parser().parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
-    if args.command == "train":
-        train(args)
-    elif args.command == "evaluate":
-        run_evaluate(args.config, args.version)
-    elif args.command == "predict":
-        predict(args)
-    elif args.command == "select-features":
-        run_select_features(args.config, args.version)
-    elif args.command == "backtest":
-        run_backtest(args.config, args.version)
-    elif args.command == "compare":
-        compare(args)
-    elif args.command == "export":
-        export(args)
-    else:
+    handler = _DISPATCH.get(args.command)
+    if handler is None:
         raise NotImplementedError(f"{args.command} lands in {PENDING[args.command]}")
+    handler(args)
 
 
 if __name__ == "__main__":

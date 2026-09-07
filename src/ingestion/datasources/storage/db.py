@@ -62,8 +62,16 @@ class Database(BaseDatasource):
         super().__init__(config)
         self.conn = None
 
-    def read_data(self) -> pd.DataFrame:
-        pass
+    def read_data(
+        self,
+        run_date: str | None = None,
+        watermarks: Dict[str, date] | None = None,
+    ) -> pd.DataFrame | None:
+        # Intentionally empty: Database is the write side of the framework. The read
+        # side is datasources/api/, and BaseFeed never calls read_data on a sink — the
+        # method exists only to satisfy BaseDatasource's abstract interface. The
+        # parameters mirror the base signature so a subclass can override it properly.
+        return None
 
     def write_data(self, run_date: str, data: pd.DataFrame) -> None:
         self.connect()
@@ -186,17 +194,3 @@ class PostgresDataSource(Database):
         if self.conn is not None:
             self.conn.dispose()
             self.conn = None
-
-
-# if __name__ == "__main__":
-#     config = read_config(Path("/Users/codebase/Documents/codebase/aurum/src/ingestion/configs/ohlcv_1d.yaml"))
-#     config = config.get("output_datasource", "")
-#     config["table"] = "sample"
-#     pg = PostgresDataSource(config)
-#     pg.connect()
-#     pg.write_data(data=pd.DataFrame({
-#         "date": pd.to_datetime(date.today(), unit="D"),
-#         "open": np.random.randn(10000),
-#     }))
-
-

@@ -110,15 +110,19 @@ def test_build_features_raises_when_a_target_reaches_the_matrix():
     # The acceptance criterion: deliberately smuggle a target past the deny-list.
     config = PreprocessConfig(leakage_columns=["fwd_ret_5d"])
 
+    panel = _panel()
+
     with pytest.raises(ValueError, match="fwd_ret_5d_excess"):
-        build_features(_panel(), config)
+        build_features(panel, config)
 
 
 def test_build_features_raises_on_a_smuggled_fold_id():
     config = PreprocessConfig(leakage_columns=["fwd_ret_5d_excess"])
 
+    panel = _panel()
+
     with pytest.raises(ValueError, match="fold_id"):
-        build_features(_panel(), config)
+        build_features(panel, config)
 
 
 def test_the_decile_trap():
@@ -171,8 +175,10 @@ def test_replay_raises_when_a_feature_is_missing():
     training = add_indicators(_panel())
     _, manifest = build_features(training, CONFIG)
 
+    narrowed = training.drop(columns=["ret_21d"])
+
     with pytest.raises(ValueError, match="missing=\\['ret_21d'\\]"):
-        build_features(training.drop(columns=["ret_21d"]), CONFIG, manifest=manifest)
+        build_features(narrowed, CONFIG, manifest=manifest)
 
 
 def test_manifests_round_trip(tmp_path):

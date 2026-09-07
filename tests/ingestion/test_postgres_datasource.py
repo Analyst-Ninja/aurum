@@ -151,8 +151,10 @@ def test_rows_with_a_null_symbol_or_date_are_skipped(source, query):
 
 
 def test_watermarks_need_a_table(query):
+    sink = db.PostgresDataSource({"name": "sink"})
+
     with pytest.raises(ValueError, match="must include a table"):
-        db.PostgresDataSource({"name": "sink"}).get_watermarks()
+        sink.get_watermarks()
 
 
 def test_an_injected_group_by_never_reaches_the_query(source, query):
@@ -209,8 +211,10 @@ def test_a_null_max_reads_as_nothing_loaded_yet(source, query):
 
 
 def test_max_value_needs_a_table():
+    sink = db.PostgresDataSource({"name": "sink"})
+
     with pytest.raises(ValueError, match="must include a table"):
-        db.PostgresDataSource({"name": "sink"}).get_max_value("RUN_DATE")
+        sink.get_max_value("RUN_DATE")
 
 
 def test_an_injected_column_never_reaches_the_query(source, query):

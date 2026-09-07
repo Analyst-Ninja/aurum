@@ -92,13 +92,3 @@ class OHLCVDataSource(BaseDatasource):
             index=["date", "symbol"], columns="field", values="value"
         ).reset_index()
         return out.copy()
-
-
-# if __name__ == "__main__":
-#     config = read_config(Path("/Users/codebase/Documents/codebase/aurum/src/ingestion/configs/ohlcv_1d.yaml"))["input_datasource"]
-#     ohlcv = OHLCVDataSource(config)
-#     print(ohlcv.name)
-#     print(ohlcv.logger)
-#     print(ohlcv.logger.name)
-#     df = ohlcv.read_data(datetime.today().strftime("%Y-%m-%d"))
-#     print(df.shape)

@@ -58,7 +58,7 @@ class BaseFeed(ABC):
             joined = joined + "||" + key_values[column].radd(f"{column}=")
 
         output[hash_column] = [
-            hashlib.md5(key.encode("utf-8")).hexdigest() for key in joined
+            hashlib.md5(key.encode("utf-8"), usedforsecurity=False).hexdigest() for key in joined
         ]
         return output
 

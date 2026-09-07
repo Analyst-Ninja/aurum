@@ -265,7 +265,8 @@ def test_predict_scores_the_latest_date_through_the_stored_manifest(
     cli.predict(type("Args", (), {"config": "run.yaml", "version": saved_run, "asof": None})())
 
     printed = capsys.readouterr().out
-    assert "symbol" in printed and "score" in printed
+    assert "symbol" in printed
+    assert "score" in printed
 
 
 def test_predict_reads_the_feature_mart_not_the_training_set(
@@ -306,10 +307,10 @@ def test_a_reordered_feature_matrix_raises_rather_than_scoring(
     shuffled = panel[list(reversed(panel.columns))].copy()
     monkeypatch.setattr(cli, "load_training_frame", lambda cfg: shuffled)
 
+    args = type("Args", (), {"config": "run.yaml", "version": saved_run, "asof": None})()
+
     with pytest.raises(ValueError, match="does not match the manifest"):
-        cli.predict(
-            type("Args", (), {"config": "run.yaml", "version": saved_run, "asof": None})()
-        )
+        cli.predict(args)
 
 
 # ------------------------------------------------------------------------ compare / export

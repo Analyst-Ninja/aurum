@@ -196,5 +196,7 @@ def test_hash_is_a_known_constant():
 def test_missing_key_columns_still_raise():
     feed = _MetaFeed(["SYMBOL", "MISSING"])
 
+    frame = pd.DataFrame({"SYMBOL": ["AAPL"]})
+
     with pytest.raises(ValueError, match="Primary-key columns missing"):
-        feed._add_write_metadata(pd.DataFrame({"SYMBOL": ["AAPL"]}), "2026-09-06", "e")
+        feed._add_write_metadata(frame, "2026-09-06", "e")

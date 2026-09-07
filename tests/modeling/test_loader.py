@@ -157,13 +157,12 @@ def test_download_leaves_no_cache_and_no_scratch_when_it_fails(tmp_path):
     from src.modeling.data.loader import _download
 
     target = tmp_path / "panel.parquet"
-    with pytest.raises(Exception):
-        _download(
-            _sqlite_engine(["not a number"]),
-            "select a from t",
-            pa.schema([("a", pa.float32())]),
-            target,
-        )
+    engine = _sqlite_engine(["not a number"])
+    schema = pa.schema([("a", pa.float32())])
+
+    # pyarrow.lib.ArrowInvalid, raised while casting the string column to float32.
+    with pytest.raises(pa.ArrowInvalid, match="Failed to parse string"):
+        _download(engine, "select a from t", schema, target)
 
     assert not target.exists()
     assert list(tmp_path.glob("*.partial")) == []
@@ -173,13 +172,11 @@ def test_download_rejects_an_empty_result(tmp_path):
     from src.modeling.data.loader import _download
 
     target = tmp_path / "panel.parquet"
+    engine = _sqlite_engine([1.0])
+    schema = pa.schema([("a", pa.float32())])
+
     with pytest.raises(ValueError, match="returned no rows"):
-        _download(
-            _sqlite_engine([1.0]),
-            "select a from t where a < 0",
-            pa.schema([("a", pa.float32())]),
-            target,
-        )
+        _download(engine, "select a from t where a < 0", schema, target)
 
     assert not target.exists()
 

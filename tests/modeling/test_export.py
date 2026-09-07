@@ -100,8 +100,10 @@ def test_report_is_uploaded_as_html_so_a_browser_renders_it(run_dir):
 
 def test_missing_run_raises_rather_than_uploading_nothing(run_dir):
     client = FakeS3()
+    config = ExportConfig()
+
     with pytest.raises(FileNotFoundError):
-        upload_run(run_dir, "latest-full", ExportConfig(), client, NOW)
+        upload_run(run_dir, "latest-full", config, client, NOW)
     assert client.calls == []
 
 
@@ -117,5 +119,7 @@ def test_config_bucket_is_the_fallback(monkeypatch):
 
 def test_no_bucket_anywhere_raises_naming_the_env_var(monkeypatch):
     monkeypatch.delenv(BUCKET_ENV, raising=False)
+    config = ExportConfig()
+
     with pytest.raises(ValueError, match=BUCKET_ENV):
-        resolve_bucket(ExportConfig())
+        resolve_bucket(config)

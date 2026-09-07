@@ -51,7 +51,8 @@ def test_version_id_is_date_and_short_sha():
     version = version_id()
     date_part, sha = version.split("-")
 
-    assert len(date_part) == 8 and date_part.isdigit()
+    assert len(date_part) == 8
+    assert date_part.isdigit()
     assert sha == git_sha(short=True)
 
 
@@ -113,8 +114,10 @@ def test_an_unsuffixed_save_publishes_no_extra_symlink(tmp_path, booster):
 
 
 def test_save_run_rejects_an_unsafe_suffix(tmp_path, booster):
+    metadata = _metadata()
+
     with pytest.raises(ValueError):
-        save_run(tmp_path, booster, _metadata(), {"features": ["a"]}, {}, suffix="../x")
+        save_run(tmp_path, booster, metadata, {"features": ["a"]}, {}, suffix="../x")
 
 
 def test_git_sha_prefers_the_env_override(monkeypatch):
@@ -191,7 +194,8 @@ def test_file_hash_returns_none_for_a_missing_file(tmp_path):
 def test_package_versions_records_what_produced_the_model():
     versions = package_versions()
 
-    assert "lightgbm" in versions and versions["lightgbm"]
+    assert "lightgbm" in versions
+    assert versions["lightgbm"]
 
 
 def test_metadata_proves_the_holdout_was_untouched(tmp_path, booster):

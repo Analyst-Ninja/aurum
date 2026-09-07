@@ -18,6 +18,8 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+from src.utils.paths import safe_path
+
 logger = logging.getLogger(__name__)
 
 # The seed's schema, in order. `mart_feature_summary` reads `feature_name`, `selected`
@@ -67,7 +69,7 @@ def write_narrow_config(base_config: Path, ranking: pd.DataFrame) -> Path:
     config alone, and #55's gate is a comparison between two runs that must differ in
     exactly one documented way.
     """
-    payload = yaml.safe_load(base_config.read_text())
+    payload = yaml.safe_load(safe_path(base_config).read_text())
     features = ranking.loc[ranking["selected"].astype(bool), "feature_name"].tolist()
     payload.setdefault("preprocess", {})["allow_list"] = features
 

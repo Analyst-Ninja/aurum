@@ -107,15 +107,19 @@ def test_unparseable_stored_value_is_treated_as_stale(monkeypatch, caplog):
 def test_non_positive_threshold_is_rejected(monkeypatch):
     _patch_sink(monkeypatch, "2026-09-01")
 
+    config = _config(max_gap=0)
+
     with pytest.raises(ValueError, match="positive number of days"):
-        freshness.check_freshness(_config(max_gap=0), "2026-09-11")
+        freshness.check_freshness(config, "2026-09-11")
 
 
 def test_unparseable_run_date_is_rejected(monkeypatch):
     _patch_sink(monkeypatch, "2026-09-01")
 
+    config = _config()
+
     with pytest.raises(ValueError, match="Could not parse run_date"):
-        freshness.check_freshness(_config(), "yesterday")
+        freshness.check_freshness(config, "yesterday")
 
 
 class _Source:

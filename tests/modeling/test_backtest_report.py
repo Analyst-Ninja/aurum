@@ -227,14 +227,17 @@ def test_tiles_render_a_key_and_a_value_each():
     html = report._tiles([("Dates", "60"), ("Break-even", "12.0 bps")])
 
     assert html.count('class="tile"') == 2
-    assert "Break-even" in html and "12.0 bps" in html
+    assert "Break-even" in html
+    assert "12.0 bps" in html
 
 
 def test_figures_emit_a_light_and_a_dark_image_per_panel():
     html = report._figures([{"title": "T", "images": {"light": "L", "dark": "D"}}])
 
-    assert 'class="light"' in html and 'class="dark"' in html
-    assert 'src="L"' in html and 'src="D"' in html
+    assert 'class="light"' in html
+    assert 'class="dark"' in html
+    assert 'src="L"' in html
+    assert 'src="D"' in html
 
 
 def test_the_report_is_self_contained(tmp_path, block):
@@ -245,7 +248,8 @@ def test_the_report_is_self_contained(tmp_path, block):
 
     assert html.startswith("<!doctype html>")
     assert "20260907-abc" in html
-    assert "src=\"http" not in html and "<script" not in html
+    assert "src=\"http" not in html
+    assert "<script" not in html
 
 
 def test_the_report_leads_with_the_biases_before_any_number(tmp_path, block):
@@ -263,6 +267,7 @@ def test_the_report_tiles_the_swept_sharpes_and_the_break_even(tmp_path, block):
         tmp_path / report.REPORT, "v", [block], {"reality_checks": []}
     ).read_text()
 
-    assert "Sharpe @0bps" in html and "Sharpe @10bps" in html
+    assert "Sharpe @0bps" in html
+    assert "Sharpe @10bps" in html
     assert "Break-even" in html
     assert "42%" in html  # mean turnover, rendered as a percentage

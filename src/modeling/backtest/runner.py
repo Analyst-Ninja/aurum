@@ -152,7 +152,7 @@ def run_backtest(config_path: str, version: str) -> Path:
     out.mkdir(parents=True, exist_ok=True)
 
     holdout["yearly"].to_csv(out / YEARLY, index=False)
-    pd.DataFrame({label: curve for label, curve in holdout["curves"].items()}).to_csv(
+    pd.DataFrame(dict(holdout["curves"])).to_csv(
         out / EQUITY
     )
     portfolio.build_positions(holdout["predictions"], horizon).to_parquet(

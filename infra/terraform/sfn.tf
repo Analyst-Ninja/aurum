@@ -180,6 +180,13 @@ data "aws_iam_policy_document" "sfn" {
     actions   = ["sns:Publish"]
     resources = [aws_sns_topic.alerts.arn]
   }
+
+  # The topic is SSE-KMS, so publishing needs the data key as well as sns:Publish.
+  statement {
+    sid       = "EncryptFailureAlerts"
+    actions   = ["kms:Decrypt", "kms:GenerateDataKey"]
+    resources = [data.aws_kms_alias.sns.target_key_arn]
+  }
 }
 
 resource "aws_iam_role_policy" "sfn" {
