@@ -366,7 +366,7 @@ resource "aws_ecs_task_definition" "train" {
       "${local.modeling_cli} select-features -c ${local.base_config} --version latest-full",
       # 4. Push the ranking into the warehouse. A subshell so the cd does not leak into
       #    the later steps, and seed before build because the mart reads the table.
-      "(cp /app/src/transformation/aurum_dwh/seeds/selected_features.csv ${local.dbt_project}/seeds/ && cd ${local.dbt_project} && dbt seed --select selected_features && dbt build --select mart_feature_summary)",
+      "(cp /app/models/seeds/selected_features.csv ${local.dbt_project}/seeds/ && cd ${local.dbt_project} && dbt seed --select selected_features && dbt build --select mart_feature_summary)",
       # 5. Refit on the ~40 survivors. Same command as step 1, different config.
       "${local.modeling_cli} train -c ${local.narrow_config} --version-suffix narrow",
       # 6. Same metrics, so the two are comparable.
