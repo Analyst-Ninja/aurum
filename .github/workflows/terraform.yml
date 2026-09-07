@@ -8,6 +8,10 @@ on:
   pull_request:
     paths:
       - "infra/terraform/**"
+  # Manual trigger. The path filter above means a workflow-only or docs-only change never
+  # fires a run, so without this there is no way to apply after fixing the job itself —
+  # and re-running an old run replays that commit's workflow file, bug and all.
+  workflow_dispatch:
 
 # Least-privilege GITHUB_TOKEN. The apply job widens this with id-token: write, which is
 # what mints the OIDC token AWS exchanges for a session.
@@ -47,7 +51,7 @@ jobs:
   apply:
     name: Apply (main only)
     needs: validate
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     permissions:

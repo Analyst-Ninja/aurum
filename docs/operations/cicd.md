@@ -58,7 +58,7 @@ Two jobs, both path-filtered to `infra/terraform/**` so the workflow stays silen
 - `terraform init -backend=false` + `terraform validate` — syntax/provider schema without touching state
 - `tflint --recursive` — provider-aware linting
 
-**`apply`** — `needs: validate`, and only on a push to `main` (GH-84). Merging an infra change applies it; nothing applies from a PR or any other branch, and there is no approval gate.
+**`apply`** — `needs: validate`, and only on a push to `main`, or a manual `workflow_dispatch` on `main` (GH-84). Merging an infra change applies it; nothing applies from a PR or any other branch, and there is no approval gate. The manual trigger exists because the path filter means a workflow-only or docs-only change never fires a run — without it there is no way to apply after fixing the job itself, and re-running an old run replays that commit's workflow file. The `github.ref` guard is belt-and-braces: a dispatch from another branch could not assume the role anyway, since the trust policy pins `ref:refs/heads/main`.
 
 The original decision was "apply stays local", on two grounds that no longer hold: the kafka/postgres providers targeting compose endpoints (the only provider left is `hashicorp/aws`) and local gitignored state (`versions.tf` moved to an S3 backend with `use_lockfile = true`). What replaced them:
 
