@@ -45,3 +45,12 @@ modeling = [
 
 [tool.ruff.lint.per-file-ignores]
 "src/ingestion/runner.py" = ["F401"]
+
+[tool.coverage.report]
+# `if __name__ == "__main__":` guards a hand-run scratch block; it is unreachable
+# under pytest by construction, so counting it as a miss reports a gap that no test
+# could ever close.
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
