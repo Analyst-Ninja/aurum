@@ -31,11 +31,12 @@ locals {
     { name = "SEC_USER_AGENT", valueFrom = aws_ssm_parameter.sec_user_agent.arn },
   ]
 
-  # Modelling configs live on EFS, not in the image, and that is load-bearing.
-  # select-features writes the generated <config>_narrow.yaml *beside* the base config,
-  # and that path is derived rather than configurable — a config baked into the image
-  # would take the generated narrow config down with it when the task exits.
-  # docker/bootstrap_efs.sh puts them there.
+  # Modelling configs ship in the image. select-features writes the generated
+  # <config>_narrow.yaml *beside* the base config and the seed to the path in
+  # `select.seed_path`, so both land inside the image's filesystem — container-local, and
+  # that is fine: every state below runs in one container, and step 3 regenerates both
+  # from scratch each week. Nothing reads last week's copy, so there is no cross-task
+  # state to persist and no EFS hop to bootstrap.
   base_config   = "/app/src/modeling/configs/lgbm_xs_excess_5d.yaml"
   narrow_config = "/app/src/modeling/configs/lgbm_xs_excess_5d_narrow.yaml"
   modeling_cli  = "python -m src.modeling.cli"
@@ -366,7 +367,9 @@ resource "aws_ecs_task_definition" "train" {
       "${local.modeling_cli} select-features -c ${local.base_config} --version latest-full",
       # 4. Push the ranking into the warehouse. A subshell so the cd does not leak into
       #    the later steps, and seed before build because the mart reads the table.
-      "(cp /app/models/seeds/selected_features.csv ${local.dbt_project}/seeds/ && cd ${local.dbt_project} && dbt seed --select selected_features && dbt build --select mart_feature_summary)",
+      #    No copy first: `select.seed_path` already points select-features at this
+      #    directory, so the CSV dbt seeds is the one step 3 just wrote.
+      "(cd ${local.dbt_project} && dbt seed --select selected_features && dbt build --select mart_feature_summary)",
       # 5. Refit on the ~40 survivors. Same command as step 1, different config.
       "${local.modeling_cli} train -c ${local.narrow_config} --version-suffix narrow",
       # 6. Same metrics, so the two are comparable.
