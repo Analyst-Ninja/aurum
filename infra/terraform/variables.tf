@@ -91,3 +91,9 @@ variable "artifact_retention_days" {
   type        = number
   default     = 365
 }
+
+variable "github_repository" {
+  description = "The owner/repo the GitHub Actions OIDC trust policy is scoped to. Only workflow runs on this repository's main branch can assume aws_iam_role.github_actions."
+  type        = string
+  default     = "Analyst-Ninja/aurum"
+}

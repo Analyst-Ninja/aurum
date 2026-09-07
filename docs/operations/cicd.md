@@ -50,15 +50,28 @@ Server bootstrap (local): `docker run -d --name sonarqube -p 9000:9000 sonarqube
 
 ## 3. Terraform workflow
 
-Validation only, per the [infra-as-code.md](infra-as-code.md) decision (local state, local endpoints):
+Two jobs, both path-filtered to `infra/terraform/**` so the workflow stays silent on every other change.
+
+**`validate`** — runs on pushes to `main` and on PRs:
 
 - `terraform fmt -check -recursive` — style
 - `terraform init -backend=false` + `terraform validate` — syntax/provider schema without touching state
 - `tflint --recursive` — provider-aware linting
 
-**`plan` and `apply` stay local** — the kafka/postgres providers target compose endpoints on the operator machine, and tfstate is local + gitignored. CI can't and shouldn't reach either. Local flow: `terraform plan` → review → `terraform apply` (infra-as-code.md §6).
+**`apply`** — `needs: validate`, and only on a push to `main` (GH-84). Merging an infra change applies it; nothing applies from a PR or any other branch, and there is no approval gate.
 
-Path-filtered: the workflow only fires when `infra/terraform/**` changes, so it stays silent until the modules exist.
+The original decision was "apply stays local", on two grounds that no longer hold: the kafka/postgres providers targeting compose endpoints (the only provider left is `hashicorp/aws`) and local gitignored state (`versions.tf` moved to an S3 backend with `use_lockfile = true`). What replaced them:
+
+| Concern | How the job handles it |
+|---|---|
+| AWS credentials | GitHub OIDC. `aws-actions/configure-aws-credentials` assumes `aurum-github-actions` (`infra/terraform/github_oidc.tf`); the trust policy is `StringEquals` on `sub = repo:Analyst-Ninja/aurum:ref:refs/heads/main`, so no other repo, branch or fork PR can assume it. No long-lived keys exist anywhere. |
+| State locking | `concurrency: { group: terraform-apply, cancel-in-progress: false }`. The S3 backend's native lock fails a concurrent run outright, and cancelling mid-apply strands the lock. |
+| `image_tag` | Read off the live `aurum-ingest-market` task definition, not from the commit SHA. Nothing in CI builds or pushes an image — `make push` is still local — so passing this commit's SHA would repoint all four task definitions at an image that was never pushed. The step fails loudly rather than defaulting. |
+| Secrets | `TF_VAR_db_password` / `TF_VAR_sec_user_agent` as repository secrets, `TF_VAR_ALERT_EMAIL` as a repository variable, all injected as env — never as `-var` on the command line. |
+
+**Bootstrap.** The role has to exist before a run can assume it, so the first apply after `github_oidc.tf` landed was a local `terraform apply`. If the account already has an OIDC provider for `token.actions.githubusercontent.com`, import it — an account holds only one per URL.
+
+**Still local:** building and pushing the container image (`make push`), and any `terraform plan` you want to eyeball before merging.
 
 ## 4. Branch protection (recommended setup)
 
@@ -72,8 +85,9 @@ On `main`: require PRs, require status checks `Lint & test`, `SonarQube analysis
 | dbt project lands | Add job: `dbt build` against a Snowflake CI schema, `sqlfluff` lint |
 | Docker images per component | Add build+push job (GHCR), compose pulls tagged images. The training
 image ([training-container.md](training-container.md)) is built locally for now — CI does not build or push it |
-| Infra grows past local | Revisit: remote state + Snowflake-module apply from CI (rejected for now — see infra-as-code.md) |
+| ~~Infra grows past local~~ | ~~Revisit: remote state + apply from CI~~ — **done** (GH-84): state is S3, apply runs on merge to `main` via OIDC. See §3. |
 
 ---
 
 *Decisions (user-confirmed 2026-07-12): self-hosted SonarQube (not SonarCloud); Terraform CI = validate/lint only, apply stays local.*
+*Amended 2026-09-07 (GH-84): apply now runs in CI on merge to `main`. Both premises behind "apply stays local" had expired — see §3.*

@@ -59,3 +59,7 @@ output "artifacts_bucket" {
   description = "S3 bucket the train task publishes each run to, under runs/<version>/<timestamp>/. Injected into every task as AURUM_ARTIFACTS_BUCKET."
   value       = aws_s3_bucket.artifacts.bucket
 }
+output "github_actions_role_arn" {
+  description = "Role the Terraform apply job assumes via OIDC. Must match role-to-assume in .github/workflows/terraform.yml."
+  value       = aws_iam_role.github_actions.arn
+}
