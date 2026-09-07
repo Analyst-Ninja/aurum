@@ -21,10 +21,9 @@ data/
 models/
 logs/
 
-# Not needed to train.
+# Not needed at runtime. src/transformation/ is NOT here: the image runs dbt.
 nbs/
 docs/
 tests/
-src/transformation/
 airflow/
 infra/
