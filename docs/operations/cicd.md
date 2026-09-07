@@ -58,7 +58,7 @@ Two jobs, both path-filtered to `infra/terraform/**` so the workflow stays silen
 - `terraform init -backend=false` + `terraform validate` — syntax/provider schema without touching state
 - `tflint --recursive` — provider-aware linting
 
-**`apply`** — `needs: validate`, and only on a push to `main` (GH-84). Merging an infra change applies it; nothing applies from a PR or any other branch, and there is no approval gate.
+**`apply`** — `needs: validate`, and only on a push to `main`, or a manual `workflow_dispatch` on `main` (GH-84). Merging an infra change applies it; nothing applies from a PR or any other branch, and there is no approval gate. The manual trigger exists because the path filter means a workflow-only or docs-only change never fires a run — without it there is no way to apply after fixing the job itself, and re-running an old run replays that commit's workflow file. The `github.ref` guard is belt-and-braces: a dispatch from another branch could not assume the role anyway, since the trust policy pins `ref:refs/heads/main`.
 
 The original decision was "apply stays local", on two grounds that no longer hold: the kafka/postgres providers targeting compose endpoints (the only provider left is `hashicorp/aws`) and local gitignored state (`versions.tf` moved to an S3 backend with `use_lockfile = true`). What replaced them:
 
@@ -67,7 +67,7 @@ The original decision was "apply stays local", on two grounds that no longer hol
 | AWS credentials | GitHub OIDC. `aws-actions/configure-aws-credentials` assumes `aurum-github-actions` (`infra/terraform/github_oidc.tf`); the trust policy is `StringEquals` on `sub = repo:Analyst-Ninja/aurum:ref:refs/heads/main`, so no other repo, branch or fork PR can assume it. No long-lived keys exist anywhere. |
 | State locking | `concurrency: { group: terraform-apply, cancel-in-progress: false }`. The S3 backend's native lock fails a concurrent run outright, and cancelling mid-apply strands the lock. |
 | `image_tag` | Read off the live `aurum-ingest-market` task definition, not from the commit SHA. Nothing in CI builds or pushes an image — `make push` is still local — so passing this commit's SHA would repoint all four task definitions at an image that was never pushed. The step fails loudly rather than defaulting. |
-| Secrets | `TF_VAR_db_password` / `TF_VAR_sec_user_agent` as repository secrets, `TF_VAR_ALERT_EMAIL` as a repository variable, all injected as env — never as `-var` on the command line. |
+| Secrets | `TF_VAR_DB_PASSWORD`, `TF_VAR_SEC_USER_AGENT` and `TF_VAR_ALERT_EMAIL` as repository secrets, injected as env — never as `-var` on the command line. A preflight step fails the job if any is empty: an unset secret renders as `""`, and `TF_VAR_x=""` counts as *set* to Terraform, so it overrides the variable's default instead of falling through to it. The first run learned this the hard way — an empty `alert_email` destroyed the SNS email subscription and then failed to recreate it (`InvalidParameter: Endpoint`), leaving alerts silent until the values were set. |
 
 **Bootstrap.** The role has to exist before a run can assume it, so the first apply after `github_oidc.tf` landed was a local `terraform apply`. If the account already has an OIDC provider for `token.actions.githubusercontent.com`, import it — an account holds only one per URL.
 

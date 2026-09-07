@@ -8,6 +8,10 @@ on:
   pull_request:
     paths:
       - "infra/terraform/**"
+  # Manual trigger. The path filter above means a workflow-only or docs-only change never
+  # fires a run, so without this there is no way to apply after fixing the job itself —
+  # and re-running an old run replays that commit's workflow file, bug and all.
+  workflow_dispatch:
 
 # Least-privilege GITHUB_TOKEN. The apply job widens this with id-token: write, which is
 # what mints the OIDC token AWS exchanges for a session.
@@ -47,7 +51,7 @@ jobs:
   apply:
     name: Apply (main only)
     needs: validate
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     permissions:
@@ -94,6 +98,30 @@ jobs:
           echo "Deployed image tag: $tag"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
+      # An unset secret renders as the empty string, and TF_VAR_x="" counts as SET to
+      # Terraform — it overrides the variable's default rather than falling through to it.
+      # That is how a missing TF_VAR_ALERT_EMAIL destroyed the SNS email subscription and
+      # then failed to recreate it (InvalidParameter: Endpoint), leaving alerts silent.
+      # Fail before `apply` touches anything instead.
+      - name: Check required secrets are set
+        env:
+          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
+          TF_VAR_sec_user_agent: ${{ secrets.TF_VAR_SEC_USER_AGENT }}
+          TF_VAR_alert_email: ${{ secrets.TF_VAR_ALERT_EMAIL }}
+        run: |
+          set -uo pipefail
+          missing=0
+          check() {
+            if [ -z "$2" ]; then
+              echo "::error::repository secret $1 is unset or empty"
+              missing=1
+            fi
+          }
+          check TF_VAR_DB_PASSWORD    "$TF_VAR_db_password"
+          check TF_VAR_SEC_USER_AGENT "$TF_VAR_sec_user_agent"
+          check TF_VAR_ALERT_EMAIL    "$TF_VAR_alert_email"
+          [ "$missing" -eq 0 ] || exit 1
+
       - name: Init (S3 backend)
         run: terraform init -input=false
 
@@ -103,4 +131,4 @@ jobs:
           TF_VAR_image_tag: ${{ steps.image.outputs.tag }}
           TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
           TF_VAR_sec_user_agent: ${{ secrets.TF_VAR_SEC_USER_AGENT }}
-          TF_VAR_alert_email: ${{ vars.TF_VAR_ALERT_EMAIL }}
+          TF_VAR_alert_email: ${{ secrets.TF_VAR_ALERT_EMAIL }}
