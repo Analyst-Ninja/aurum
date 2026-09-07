@@ -36,3 +36,4 @@ class BaseDatasource(ABC):
         frame = self.read_data(run_date, watermarks=watermarks)
         if frame is not None and not frame.empty:
             yield frame
+
