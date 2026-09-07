@@ -3,9 +3,19 @@ name: Terraform
 on:
   push:
     branches: [main]
+    # Two kinds of change reach production through this workflow: the infrastructure
+    # itself, and the application code baked into the image the task definitions run.
+    # The second set is exactly what docker/aurum.Dockerfile COPYs, plus the lockfile.
     paths:
       - "infra/terraform/**"
+      - "src/**"
+      - "docker/**"
+      - "main.py"
+      - "pyproject.toml"
+      - "uv.lock"
   pull_request:
+    # Validation only — a PR never builds or applies, so a code-only PR has nothing to
+    # do here and stays on the CI workflow.
     paths:
       - "infra/terraform/**"
   # Manual trigger. The path filter above means a workflow-only or docs-only change never
@@ -67,6 +77,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # `git log -- <paths>` below walks history, so a depth-1 clone is not enough.
+          fetch-depth: 0
 
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
 
@@ -76,27 +89,64 @@ jobs:
           role-to-assume: arn:aws:iam::851459781998:role/aurum-github-actions
           aws-region: us-east-1
 
-      # var.image_tag has no default and rejects "latest" (variables.tf), and nothing in CI
-      # builds or pushes an image — `make push` is still a local step. An infra-only apply
-      # must therefore keep whatever tag is already deployed, read off the live task
-      # definition rather than guessed from the commit: passing this commit's SHA would
-      # repoint all four task definitions at an image that was never pushed, and every
-      # scheduled run would then die on CannotPullContainerError.
-      - name: Resolve the deployed image tag
+      # var.image_tag has no default and rejects "latest" (variables.tf), so every apply
+      # has to name a tag that really exists in ECR.
+      #
+      # The tag is the short SHA of the last commit that touched anything the image
+      # contains — NOT of HEAD. An infra-only commit therefore resolves to the tag that
+      # is already deployed, the build is skipped and the task definitions do not move;
+      # a commit that changes src/ resolves to itself and rolls them forward. Building
+      # the working tree under an older commit's tag is still exact: by construction
+      # none of the COPYed paths changed between that commit and HEAD.
+      #
+      # This replaced reading the tag off the live task definition. That read was a
+      # fixed point — the input always equalled the current state, so `apply` reported
+      # "No changes" forever and application code could never ship from CI.
+      - name: Resolve the image tag
         id: image
+        working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          image=$(aws ecs describe-task-definition \
-            --task-definition aurum-ingest-market \
-            --query 'taskDefinition.containerDefinitions[0].image' \
-            --output text)
-          tag=${image##*:}
-          if [ -z "$tag" ] || [ "$tag" = "None" ] || [ "$tag" = "$image" ]; then
-            echo "::error::could not resolve image_tag from task definition image '$image'"
-            exit 1
-          fi
-          echo "Deployed image tag: $tag"
+          commit=$(git log -1 --format=%H -- pyproject.toml uv.lock src docker main.py)
+          tag=$(git rev-parse --short "${commit:-HEAD}")
+          echo "Image tag: $tag"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      # aws_ecr_repository.aurum is IMMUTABLE, so re-pushing an existing tag fails. The
+      # existence check is also what makes a re-run idempotent: the same commit resolves
+      # to the same tag, finds the image already there, and goes straight to the apply.
+      #
+      # The build runs inside the apply job on purpose. It is covered by the same
+      # terraform-apply concurrency group, so two pushes in quick succession cannot race
+      # a build against an apply, and a build failure stops the job before `apply`.
+      - name: Build and push the image if that tag is not in ECR
+        working-directory: ${{ github.workspace }}
+        env:
+          AWS_REGION: us-east-1
+          ECR_REPO: aurum
+          TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          set -euo pipefail
+          account=$(aws sts get-caller-identity --query Account --output text)
+          registry="$account.dkr.ecr.$AWS_REGION.amazonaws.com"
+
+          if aws ecr describe-images \
+               --repository-name "$ECR_REPO" \
+               --image-ids imageTag="$TAG" >/dev/null 2>&1; then
+            echo "$registry/$ECR_REPO:$TAG already exists — skipping the build."
+            exit 0
+          fi
+
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$registry"
+
+          # --platform linux/amd64 is a no-op on the runner and a hard requirement on an
+          # Apple-silicon laptop; kept identical to the Makefile so both paths produce
+          # the same image. Fargate refuses an arm64 image.
+          docker build --platform linux/amd64 \
+            -f docker/aurum.Dockerfile \
+            -t "$registry/$ECR_REPO:$TAG" .
+          docker push "$registry/$ECR_REPO:$TAG"
 
       # An unset secret renders as the empty string, and TF_VAR_x="" counts as SET to
       # Terraform — it overrides the variable's default rather than falling through to it.
