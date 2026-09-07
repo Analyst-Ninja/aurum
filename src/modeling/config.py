@@ -286,6 +286,22 @@ class BacktestConfig(BaseModel):
     seed: int = 42
 
 
+class ExportConfig(BaseModel):
+    """Where a finished run's artifacts are published for a human to read (#75).
+
+    The bucket is deliberately not defaulted: its name carries the AWS account id, so it
+    is supplied by Terraform through `AURUM_ARTIFACTS_BUCKET` rather than committed here.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    bucket: str | None = None
+    prefix: str = "runs"
+    # The one artifact that grows with the universe and that nobody opens by hand — the
+    # tearsheet and equity curve already carry everything a review needs.
+    exclude: list[str] = ["backtest/positions.parquet"]
+
+
 class ModelingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -297,6 +313,7 @@ class ModelingConfig(BaseModel):
     train: TrainConfig = TrainConfig()
     select: SelectConfig = SelectConfig()
     backtest: BacktestConfig = BacktestConfig()
+    export: ExportConfig = ExportConfig()
     # Manifests land here. GH-53's registry moves them under a version directory.
     output_dir: Path = Path("models")
 

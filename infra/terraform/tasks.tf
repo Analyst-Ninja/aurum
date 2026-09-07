@@ -19,6 +19,7 @@ locals {
     { name = "HOST", value = aws_db_instance.aurum.address },
     { name = "PORT", value = "5432" },
     { name = "AURUM_GIT_SHA", value = var.image_tag },
+    { name = "AURUM_ARTIFACTS_BUCKET", value = aws_s3_bucket.artifacts.bucket },
   ]
 
   # SEC_USER_AGENT is not EDGAR-only. src/ingestion/datasources/api/yahoo/ohlcv.py calls
@@ -378,6 +379,13 @@ resource "aws_ecs_task_definition" "train" {
       "${local.modeling_cli} compare -c ${local.narrow_config} --version latest-narrow --baseline latest-full",
       # 8. Does it make money? Overlapping tranches, cost sweep, randomization checks.
       "${local.modeling_cli} backtest -c ${local.narrow_config} --version latest-narrow",
+      # 9. Publish both runs to S3 under runs/<version>/<timestamp>/, so the reports and
+      #    metrics can be read from a browser instead of by starting a task to cat a file
+      #    off EFS. Last on purpose: everything above has already landed on EFS, so an S3
+      #    outage costs the publish and not the month's training. Still `&&`-joined, so
+      #    the execution ends red and the SNS Catch fires rather than failing silently.
+      "${local.modeling_cli} export -c ${local.base_config} --version latest-full",
+      "${local.modeling_cli} export -c ${local.narrow_config} --version latest-narrow",
     ])]
   }])
 }

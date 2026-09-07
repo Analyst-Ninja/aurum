@@ -54,3 +54,8 @@ output "sfn_monthly_train_arn" {
   description = "The full modelling loop, 1st of the month."
   value       = aws_sfn_state_machine.monthly_train.arn
 }
+
+output "artifacts_bucket" {
+  description = "S3 bucket the train task publishes each run to, under runs/<version>/<timestamp>/. Injected into every task as AURUM_ARTIFACTS_BUCKET."
+  value       = aws_s3_bucket.artifacts.bucket
+}

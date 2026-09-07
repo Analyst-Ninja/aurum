@@ -311,6 +311,54 @@ resource "aws_iam_role_policy" "execution_secrets" {
   policy = data.aws_iam_policy_document.execution_secrets.json
 }
 
+# Artifacts bucket: where a finished run goes to be read by a human.
+#
+# EFS is the pipeline's working store — every state reads and writes it — but reaching an
+# access point means starting a task inside the VPC, so a backtest report on EFS can only
+# be opened by running a container to cat it. S3 is the other half: `cli.py export` copies
+# each run here under runs/<version>/<timestamp>/, and a presigned URL opens report.html
+# in a browser. EFS stays authoritative; this is a publish, not a migration.
+resource "aws_s3_bucket" "artifacts" {
+  bucket = "${var.project}-artifacts-${data.aws_caller_identity.current.account_id}"
+}
+
+# The reports carry no secrets, but they do carry the strategy's positions and returns.
+resource "aws_s3_bucket_public_access_block" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+# Two runs a month, each with a model.txt, and nothing ever deletes them by hand.
+resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
+  count  = var.artifact_retention_days > 0 ? 1 : 0
+  bucket = aws_s3_bucket.artifacts.id
+
+  rule {
+    id     = "expire-old-runs"
+    status = "Enabled"
+
+    filter {}
+
+    expiration {
+      days = var.artifact_retention_days
+    }
+  }
+}
+
 # Task role: what the application code itself may do at run time.
 resource "aws_iam_role" "task" {
   name               = "${var.project}-ecs-task"
@@ -340,6 +388,14 @@ data "aws_iam_policy_document" "task" {
     sid       = "PublishAlerts"
     actions   = ["sns:Publish"]
     resources = [aws_sns_topic.alerts.arn]
+  }
+
+  # Write-only, and only under the bucket's keys: the pipeline publishes runs, it never
+  # reads them back and never needs to delete one. Expiry is the lifecycle rule's job.
+  statement {
+    sid       = "PublishRunArtifacts"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.artifacts.arn}/*"]
   }
 }
 

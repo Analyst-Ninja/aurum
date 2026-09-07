@@ -85,3 +85,9 @@ variable "monthly_budget_usd" {
   type        = number
   default     = 150
 }
+
+variable "artifact_retention_days" {
+  description = "How long a run's artifacts live in the S3 artifacts bucket before expiring. Every monthly execution publishes two runs (full and narrow), each carrying a model.txt, so this is the only thing keeping the bucket from growing without bound. Set to 0 to keep objects forever."
+  type        = number
+  default     = 365
+}
