@@ -40,12 +40,12 @@ resource "aws_db_parameter_group" "aurum" {
   # Raise it only alongside RAM, and lower it if dbt threads goes above 4.
   parameter {
     name  = "work_mem"
-    value = "196608" # kB = 96 MB
+    value = "96608" # kB = 96 MB
   }
 
   parameter {
     name  = "maintenance_work_mem"
-    value = "1048576" # kB — index builds during the backfill
+    value = "524288" # kB — index builds during the backfill
   }
 
   # 1.1, not the 4 the default assumes. 4 encodes a seek penalty for spinning rust; gp3 is
