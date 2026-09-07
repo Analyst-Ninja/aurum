@@ -106,7 +106,7 @@ def test_main_exits_one_when_the_truncate_fails(monkeypatch):
     monkeypatch.setattr(
         truncate,
         "truncate_landing_table",
-        lambda _path: (_ for _ in ()).throw(ValueError("boom")),
+        lambda _path, _run_date: (_ for _ in ()).throw(ValueError("boom")),
     )
 
     with pytest.raises(SystemExit) as excinfo:
@@ -117,6 +117,6 @@ def test_main_exits_one_when_the_truncate_fails(monkeypatch):
 
 def test_main_exits_zero_on_success(monkeypatch):
     monkeypatch.setattr("sys.argv", ["src.ingestion.truncate", "-c", "cfg.yaml"])
-    monkeypatch.setattr(truncate, "truncate_landing_table", lambda _path: "public.t")
+    monkeypatch.setattr(truncate, "truncate_landing_table", lambda _path, _run_date: "public.t")
 
     truncate.main()  # no SystemExit

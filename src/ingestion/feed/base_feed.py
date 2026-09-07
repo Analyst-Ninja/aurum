@@ -7,6 +7,7 @@ from typing import Dict, Any
 import pandas as pd
 
 from src.ingestion.factory import factory
+from src.ingestion.freshness import check_freshness
 
 
 class BaseFeed(ABC):
@@ -82,6 +83,28 @@ class BaseFeed(ABC):
         try:
             self.logger.info(f"Starting feed execution: {self.feed_name} | date: {run_date} | execution_id: {execution_id}")
 
+            self.metrics["run_date"] = run_date
+            self.metrics["execution_id"] = execution_id
+
+            # Staleness gate (opt-in via the config's min_refresh_gap_days). A feed whose
+            # landing table was loaded fewer than that many days ago has nothing new to
+            # fetch, so skip the pull entirely rather than re-loading the full history.
+            # SKIPPED_FRESH is a success: the CLI only exits non-zero on FAILED.
+            should_run, gap_days, min_gap_days = check_freshness(self.config, run_date)
+            if not should_run:
+                self.logger.info(
+                    "Skipping %s — last load was %s day(s) ago, below the %s-day refresh gap",
+                    self.feed_name,
+                    gap_days,
+                    min_gap_days,
+                )
+                self.metrics["row_count"] = 0
+                self.metrics["gap_days"] = gap_days
+                self.metrics["min_refresh_gap_days"] = min_gap_days
+                self.metrics["end_time"] = datetime.now()
+                self.metrics["execution_status"] = "SKIPPED_FRESH"
+                return self.metrics
+
             incremental = not full_load
             watermarks = {}
             if incremental:
@@ -91,8 +114,6 @@ class BaseFeed(ABC):
                 )
 
             self.metrics["incremental"] = incremental
-            self.metrics["run_date"] = run_date
-            self.metrics["execution_id"] = execution_id
 
             # Write each chunk before fetching the next, so peak memory is one batch
             # rather than the whole pull. Sources that do not page yield a single chunk

@@ -152,6 +152,12 @@ resource "aws_ecs_task_definition" "ingest_market" {
 # leaves at most ONE table empty until the next run, instead of all six — and the daily
 # dbt build at 22:30 would otherwise turn a 06:00 EDGAR failure into a mart with no
 # fundamentals at all.
+#
+# Both steps are gated on freshness (`min_refresh_gap_days: 10` in each EDGAR config): if
+# the landing table's newest RUN_DATE is under 10 days old the truncate and the load both
+# no-op and exit 0, so a rerun — or the 15th landing close behind the 1st — costs a single
+# MAX() query instead of ~27 minutes of SEC traffic. The gate covers the truncate too
+# because truncating resets the value it measures.
 resource "aws_ecs_task_definition" "ingest_edgar" {
   family                   = "${var.project}-ingest-edgar"
   requires_compatibilities = ["FARGATE"]

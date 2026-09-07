@@ -10,6 +10,9 @@ class _Sink(db.Database):
     def get_watermarks(self, group_by="symbol", date_column="date"):
         raise NotImplementedError
 
+    def get_max_value(self, column):
+        raise NotImplementedError
+
     def connect(self):
         self.conn = object()
 

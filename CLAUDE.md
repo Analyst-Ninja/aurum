@@ -49,6 +49,7 @@ uv run python -m src.ingestion.cli -c src/ingestion/configs/edgar/income_stateme
 # empty a feed's landing table before a full reload (GH-75). Only the EDGAR task uses it,
 # once per config, immediately before that config's load.
 uv run python -m src.ingestion.truncate -c src/ingestion/configs/edgar/income_statements_quarterly.yaml
+#   -d/--run_date  default today — the date the min_refresh_gap_days staleness gate measures against
 
 # dbt (project dir must be the dbt project root)
 # dbt lives in the `dbt` dependency group, NOT the default sync — `--group dbt` is required on every call
@@ -109,6 +110,16 @@ configs/*.yaml ──▶ runner.run_feed() ──▶ factory.create_feed()  ─�
 - **The read streams into the write.** `BaseFeed.run` iterates `input_ds.read_data_chunks(...)` and processes/writes each chunk before fetching the next, so peak memory is one batch rather than the whole pull. `BaseDatasource.read_data_chunks` defaults to yielding the single frame `read_data` returns, so a source that does not page (EDGAR) is unchanged; `OHLCVDataSource` overrides it and yields per `batch_size` symbol batch. **`process()` therefore runs once per chunk and must stay row-wise** — no cross-symbol or cross-date aggregation in a feed.
 - **`batch_size` is the memory knob.** For Yahoo it sets both the request size and the size of the frame held in memory: 100 symbols × 26 years is ~650k rows. Lower it for a backfill on a small task.
 - **The sink writes in chunks.** `Database.write_data` passes `chunksize=WRITE_CHUNK_ROWS` (50k) to `to_sql`; without it pandas builds the parameter list for the whole frame first, so peak memory tracks row count. That is fine for a daily increment and fatal for a first load — with no watermark to resume from a feed pulls 503 symbols from 2000 to today in one frame, which OOM-killed the 8 GB ingest task (exit 137) on 2026-09-06. Chunking bounds the batch, not the frame; it is not a speed change.
+- **The staleness gate skips a run whose landing table is still fresh.** A config carrying
+  `min_refresh_gap_days` (the six EDGAR configs set `10`) is checked by
+  `src/ingestion/freshness.py` before any fetch: it reads `MAX("RUN_DATE")` from the landing
+  table and, if the gap to `run_date` is under the threshold, the feed returns
+  `execution_status="SKIPPED_FRESH"` with `row_count=0` and **exits 0** — the CLI only exits
+  non-zero on `FAILED`. A missing, empty, or unparseable table is always stale, so a first
+  load is never gated. `src/ingestion/truncate.py` runs the same check, and must: truncating
+  resets the value the gate measures, so an ungated truncate would make every later run look
+  stale. It takes `-d/--run_date` and returns `None` when it skips. The market feeds omit the
+  key and are never gated.
 - **A fresh database means a full load, whatever `-f` says.** `get_watermarks` returns `{}` when the landing table does not exist, so `-f False` against an empty RDS pulls the entire history. Size the task accordingly — `tasks.tf` sizes `aurum-ingest-market` for daily increments, and a backfill needs `run-task --overrides` with more memory.
 - **The sink appends and does not deduplicate.** `Database.write_data` is `to_sql(if_exists="append")` and there is no unique index on `MD5_HASH`. For watermarked feeds that is fine — they only fetch new rows. The EDGAR feeds are `full_load: true` with no watermark columns, so every run re-pulls the whole history and would duplicate ~1.9M rows; `src/ingestion/truncate.py` empties each landing table first, which makes it match the `full_load` contract the config already declares. Run it **per config**, not once for all six: a failure halfway through then leaves one table empty rather than all six.
 - Config secrets are **env var *names***, not values: `username: "AURUM_USERNAME"` is `os.getenv`-ed at connect time from `.env` (`HOST`, `PORT`, `AURUM_USERNAME`, `AURUM_PASSWORD`, `SEC_USER_AGENT`).
