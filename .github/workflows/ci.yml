@@ -15,10 +15,12 @@ permissions:
 
 jobs:
   python:
-    name: Lint & test
+    name: Lint, test & SonarQube
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
@@ -27,25 +29,22 @@ jobs:
 
       # tests/modeling imports lightgbm, pyarrow and scikit-learn, so the job needs
       # the `modeling` group on top of the default sync (which already includes `dev`,
-      # and so ruff + pytest). dbt keeps its own group and stays out: dbt-core pulls
-      # dbt-core-experimental-parser, an sdist with no wheel, which --no-build cannot
-      # install. Every modeling dependency ships manylinux wheels, so --no-build holds.
+      # and so ruff + pytest + pytest-cov). dbt keeps its own group and stays out:
+      # dbt-core pulls dbt-core-experimental-parser, an sdist with no wheel, which
+      # --no-build cannot install. Every modeling dependency ships manylinux wheels,
+      # so --no-build holds.
       - name: Install dependencies
         run: uv sync --locked --no-build --group modeling
 
       - name: Lint (ruff)
         run: uv run ruff check src/ main.py
 
-      - name: Tests (pytest)
-        run: uv run pytest tests/ -v
+      # Coverage must be written by the SAME job that runs the scanner — the Sonar
+      # action reads coverage.xml off the runner's filesystem, so a separate job
+      # would upload nothing. sonar.python.coverage.reportPaths points at this file.
+      - name: Tests (pytest + coverage)
+        run: uv run pytest tests/ -v --cov=src --cov-report=xml --cov-report=term
 
-  sonarqube:
-    name: SonarQube
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995 # v8.1.0
         env:
