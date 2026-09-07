@@ -123,11 +123,12 @@ Single compose broker → `replication_factor = 1` everywhere.
 
 ## 5. State & Secrets
 
-- **State:** local `terraform.tfstate`, **gitignored**. Single operator — no locking needed. Migration path to a remote backend is a one-off `terraform init -migrate-state` later.
+- **State:** ~~local `terraform.tfstate`, gitignored~~ — **superseded.** State lives in S3 (`infra/terraform/versions.tf`): bucket `aurum-tfstate-851459781998`, key `aurum/terraform.tfstate`, `encrypt = true`, `use_lockfile = true` for native S3 locking (no DynamoDB table). The migration this bullet described as "later" has happened.
 - **Secrets:** never in `.tf` files or committed tfvars.
   - Provider credentials via environment: `SNOWFLAKE_*`, `TF_VAR_postgres_admin_password`, etc.
   - Snowflake service users authenticate by **RSA key pair** — public key in TF, private keys stay in local files referenced by each component's env.
-  - ⚠️ **State contains secrets anyway** (provider attributes land in state). Local + gitignored contains the blast radius; treat `terraform/` dir as sensitive. Re-check before any move to remote state.
+  - ⚠️ **State contains secrets anyway** (provider attributes land in state) — and state is no longer local, so the "local + gitignored contains the blast radius" argument is gone. `db_password` and `sec_user_agent` now sit in an S3 object. The re-check this bullet demanded before any move to remote state was never done; what stands in for it today is bucket-level: `encrypt = true`, and the bucket must stay private with public access blocked and versioning on. Anyone who can read that object holds the database password.
+  - The same object is now reachable from CI: the Terraform apply job assumes `aurum-github-actions` on every push to `main` (cicd.md §3). The blast radius of a compromised `main` is the whole account.
 
 ## 6. Workflow
 

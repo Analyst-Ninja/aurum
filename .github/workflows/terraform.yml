@@ -9,6 +9,11 @@ on:
     paths:
       - "infra/terraform/**"
 
+# Least-privilege GITHUB_TOKEN. The apply job widens this with id-token: write, which is
+# what mints the OIDC token AWS exchanges for a session.
+permissions:
+  contents: read
+
 defaults:
   run:
     working-directory: infra/terraform
@@ -39,6 +44,63 @@ jobs:
           tflint --init
           tflint --recursive --format compact
 
-  # terraform plan/apply run LOCALLY by design:
-  # - kafka/postgres providers target compose endpoints on the operator machine
-  # - tfstate is local and gitignored (see docs/operations/infra-as-code.md §5)
+  apply:
+    name: Apply (main only)
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    # Serialize applies. The S3 backend takes a native lock (use_lockfile in versions.tf),
+    # so a second run would hard-fail on the lock rather than queue. cancel-in-progress
+    # stays false: killing a run mid-apply leaves the lock held and the state half-written.
+    concurrency:
+      group: terraform-apply
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: arn:aws:iam::851459781998:role/aurum-github-actions
+          aws-region: us-east-1
+
+      # var.image_tag has no default and rejects "latest" (variables.tf), and nothing in CI
+      # builds or pushes an image — `make push` is still a local step. An infra-only apply
+      # must therefore keep whatever tag is already deployed, read off the live task
+      # definition rather than guessed from the commit: passing this commit's SHA would
+      # repoint all four task definitions at an image that was never pushed, and every
+      # scheduled run would then die on CannotPullContainerError.
+      - name: Resolve the deployed image tag
+        id: image
+        run: |
+          set -euo pipefail
+          image=$(aws ecs describe-task-definition \
+            --task-definition aurum-ingest-market \
+            --query 'taskDefinition.containerDefinitions[0].image' \
+            --output text)
+          tag=${image##*:}
+          if [ -z "$tag" ] || [ "$tag" = "None" ] || [ "$tag" = "$image" ]; then
+            echo "::error::could not resolve image_tag from task definition image '$image'"
+            exit 1
+          fi
+          echo "Deployed image tag: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Init (S3 backend)
+        run: terraform init -input=false
+
+      - name: Apply
+        run: terraform apply -auto-approve -input=false
+        env:
+          TF_VAR_image_tag: ${{ steps.image.outputs.tag }}
+          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
+          TF_VAR_sec_user_agent: ${{ secrets.TF_VAR_SEC_USER_AGENT }}
+          TF_VAR_alert_email: ${{ vars.TF_VAR_ALERT_EMAIL }}
