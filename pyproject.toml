@@ -35,6 +35,7 @@ dbt = [
     "dbt-postgres>=1.11.0",
 ]
 modeling = [
+    "boto3>=1.43.89",
     "lightgbm>=4.7.0",
     "matplotlib>=3.11.1",
     "pyarrow>=25.0.0",

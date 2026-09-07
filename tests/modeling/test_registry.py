@@ -55,6 +55,68 @@ def test_version_id_is_date_and_short_sha():
     assert sha == git_sha(short=True)
 
 
+def test_version_id_appends_a_suffix():
+    assert version_id("narrow") == f"{version_id()}-narrow"
+
+
+def test_version_id_without_a_suffix_is_unchanged():
+    """The suffix is opt-in — existing commands must produce the id they always did."""
+    version = version_id(None)
+
+    assert version.count("-") == 1
+    assert version.endswith(git_sha(short=True))
+
+
+@pytest.mark.parametrize("suffix", ["../escape", "with/slash", "UPPER", "has space", ""])
+def test_version_id_rejects_an_unsafe_suffix(suffix):
+    """The suffix becomes a path segment and a symlink name, so it is validated."""
+    with pytest.raises(ValueError):
+        version_id(suffix)
+
+
+def test_suffixed_saves_do_not_overwrite_each_other(tmp_path, booster):
+    """The reason this feature exists (GH-78).
+
+    The weekly pipeline trains twice on one day from one image. Without a suffix both
+    runs resolve to the same version id and the narrowed run destroys the baseline it is
+    supposed to be compared against.
+    """
+    full = save_run(
+        tmp_path, booster, _metadata(version_id("full")), {"features": ["a", "b"]}, {},
+        suffix="full",
+    )
+    narrow = save_run(
+        tmp_path, booster, _metadata(version_id("narrow")), {"features": ["a"]}, {},
+        suffix="narrow",
+    )
+
+    assert full != narrow
+    assert (full / "model.txt").exists()
+    assert json.loads((full / "feature_manifest.json").read_text())["features"] == ["a", "b"]
+    assert (tmp_path / "latest-full").resolve() == full.resolve()
+    assert (tmp_path / "latest-narrow").resolve() == narrow.resolve()
+
+
+def test_a_suffixed_save_still_moves_plain_latest(tmp_path, booster):
+    """`latest` means "most recently trained", not "promoted"."""
+    directory = save_run(
+        tmp_path, booster, _metadata(), {"features": ["a"]}, {}, suffix="narrow"
+    )
+
+    assert (tmp_path / "latest").resolve() == directory.resolve()
+
+
+def test_an_unsuffixed_save_publishes_no_extra_symlink(tmp_path, booster):
+    save_run(tmp_path, booster, _metadata(), {"features": ["a"]}, {})
+
+    assert not list(tmp_path.glob("latest-*"))
+
+
+def test_save_run_rejects_an_unsafe_suffix(tmp_path, booster):
+    with pytest.raises(ValueError):
+        save_run(tmp_path, booster, _metadata(), {"features": ["a"]}, {}, suffix="../x")
+
+
 def test_git_sha_prefers_the_env_override(monkeypatch):
     """The training container has no .git, so the sha is passed in (GH-57)."""
     monkeypatch.setenv("AURUM_GIT_SHA", "0123456789abcdef")

@@ -24,6 +24,7 @@ from src.modeling.backtest.runner import run_backtest
 from src.modeling.evaluate.runner import METRICS, evaluate as run_evaluate
 from src.modeling.explain.seed_writer import compare_feature_sets
 from src.modeling.explain.shap_report import run_select_features
+from src.modeling.export.s3 import upload_run
 from src.modeling.models.lgbm import build_dataset, fit_final, fit_fold
 from src.modeling.models.registry import (
     DBT_MANIFEST,
@@ -42,7 +43,14 @@ logger = logging.getLogger(__name__)
 PENDING: dict[str, str] = {}
 
 # Every subcommand that scores or explains an existing run rather than creating one.
-VERSIONED = ("evaluate", "predict", "select-features", "backtest", "compare")
+VERSIONED = (
+    "evaluate",
+    "predict",
+    "select-features",
+    "backtest",
+    "compare",
+    "export",
+)
 
 
 def _prepare(config: ModelingConfig):
@@ -152,7 +160,7 @@ def train(args: argparse.Namespace) -> None:
     booster = fit_final(dataset, pre_holdout, best_params.model_dump(), n_estimators)
 
     metadata = {
-        "version": version_id(),
+        "version": version_id(args.version_suffix),
         "git_sha": git_sha(),
         "dbt_manifest_hash": file_hash(DBT_MANIFEST),
         "config_hash": config_hash(config),
@@ -183,7 +191,12 @@ def train(args: argparse.Namespace) -> None:
         ],
     }
     directory = save_run(
-        config.output_dir, booster, metadata, feature_manifest, preprocess_manifest
+        config.output_dir,
+        booster,
+        metadata,
+        feature_manifest,
+        preprocess_manifest,
+        suffix=args.version_suffix,
     )
     _save_fold_predictions(directory, folds, best_fits, dates, symbols, raw_target)
     logger.info("Mean validation IC %.4f across %s folds", best_ic, len(best_fits))
@@ -233,6 +246,12 @@ def compare(args: argparse.Namespace) -> None:
     )
 
 
+def export(args: argparse.Namespace) -> None:
+    """Publish a finished run to S3. Reads artifacts, produces nothing new."""
+    config = load_config(args.config)
+    upload_run(config.output_dir, args.version, config.export)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Modelling CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -244,6 +263,15 @@ def main() -> None:
         )
         if name in VERSIONED:
             subparser.add_argument("--version", default="latest", help="Registry version")
+        if name == "train":
+            # The weekly pipeline trains twice in one day from one image; without a
+            # suffix both runs share a version id and the second overwrites the first.
+            subparser.add_argument(
+                "--version-suffix",
+                default=None,
+                help="Append to the version id and publish models/latest-<suffix> "
+                "(lowercase letters, digits and hyphens)",
+            )
         if name == "predict":
             subparser.add_argument("--asof", default=None, help="Score as of this date")
         if name == "compare":
@@ -268,6 +296,8 @@ def main() -> None:
         run_backtest(args.config, args.version)
     elif args.command == "compare":
         compare(args)
+    elif args.command == "export":
+        export(args)
     else:
         raise NotImplementedError(f"{args.command} lands in {PENDING[args.command]}")
 

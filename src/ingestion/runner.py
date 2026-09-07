@@ -12,8 +12,13 @@ from src.ingestion.datasources.storage import db
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-def run_feed(config_path: str, run_date: str, full_load: bool = True):
-    """Runner for ingestion"""
+def run_feed(config_path: str, run_date: str, full_load: bool = True) -> dict:
+    """Runner for ingestion.
+
+    Returns the feed's metrics dict. ``BaseFeed.run`` swallows exceptions and reports
+    them as ``execution_status="FAILED"``, so the caller — not the feed — decides what a
+    failure means. The CLI turns it into a non-zero exit code.
+    """
 
     logger.info("Starting ingestion")
     logger.info(f"Config Path: {config_path}")
@@ -24,7 +29,7 @@ def run_feed(config_path: str, run_date: str, full_load: bool = True):
 
     if isinstance(feed, BaseFeed):
         logger.info("Starting ingestion")
-        feed.run(run_date, full_load)
+        metrics = feed.run(run_date, full_load)
 
     else:
         raise TypeError(f"Feed type {type(feed).__name__} is not supported")
@@ -32,3 +37,5 @@ def run_feed(config_path: str, run_date: str, full_load: bool = True):
     print("\n--------------------------")
     logger.info("Finished ingestion")
     print("\n--------------------------")
+
+    return metrics or {}

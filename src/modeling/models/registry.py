@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import subprocess
 from datetime import date
 from importlib.metadata import version
@@ -23,6 +24,20 @@ logger = logging.getLogger(__name__)
 
 DBT_MANIFEST = Path("src/transformation/aurum_dwh/target/manifest.json")
 TRACKED_PACKAGES = ("lightgbm", "pandas", "numpy", "pyarrow")
+
+# A suffix becomes both a path segment and a symlink name, so it is checked rather than
+# trusted: without this, `--version-suffix ../../etc` writes outside the registry.
+SUFFIX_PATTERN = re.compile(r"^[a-z0-9-]+$")
+
+
+def _validated_suffix(suffix: str | None) -> str | None:
+    if suffix is None:
+        return None
+    if not SUFFIX_PATTERN.fullmatch(suffix):
+        raise ValueError(
+            f"Version suffix must match {SUFFIX_PATTERN.pattern}, got {suffix!r}"
+        )
+    return suffix
 
 
 def git_sha(short: bool = False) -> str:
@@ -51,9 +66,18 @@ def git_sha(short: bool = False) -> str:
         return "unknown"
 
 
-def version_id() -> str:
-    """``{YYYYMMDD}-{git short sha}``."""
-    return f"{date.today():%Y%m%d}-{git_sha(short=True)}"
+def version_id(suffix: str | None = None) -> str:
+    """``{YYYYMMDD}-{git short sha}``, plus ``-{suffix}`` when one is given.
+
+    The suffix exists because the weekly pipeline trains twice — once on every feature,
+    once on the SHAP-narrowed set — from one image on one day. Without it both runs
+    resolve to the same id and the second overwrites the first, leaving `compare` to
+    measure a run against itself. Suffixing rather than perturbing the sha keeps the sha
+    a real commit, which is the whole point of the ``AURUM_GIT_SHA`` override.
+    """
+    base = f"{date.today():%Y%m%d}-{git_sha(short=True)}"
+    suffix = _validated_suffix(suffix)
+    return f"{base}-{suffix}" if suffix else base
 
 
 def file_hash(path: Path) -> str | None:
@@ -73,14 +97,14 @@ def package_versions() -> dict[str, str]:
     return {name: version(name) for name in TRACKED_PACKAGES}
 
 
-def _point_latest_at(directory: Path) -> None:
-    """Repoint ``models/latest`` atomically.
+def _point_latest_at(directory: Path, name: str = "latest") -> None:
+    """Repoint ``models/{name}`` atomically.
 
     Written to a temporary name and renamed, so a reader never sees a moment with no
-    ``latest`` at all.
+    symlink at all.
     """
-    latest = directory.parent / "latest"
-    staging = directory.parent / f".latest.{os.getpid()}"
+    latest = directory.parent / name
+    staging = directory.parent / f".{name}.{os.getpid()}"
     staging.unlink(missing_ok=True)
     staging.symlink_to(directory.name)
     os.replace(staging, latest)
@@ -92,8 +116,18 @@ def save_run(
     metadata: dict[str, Any],
     feature_manifest: dict[str, Any],
     preprocess_manifest: dict[str, Any],
+    suffix: str | None = None,
 ) -> Path:
-    """Write ``models/{version}/`` and repoint ``models/latest`` at it."""
+    """Write ``models/{version}/`` and repoint ``models/latest`` at it.
+
+    With a suffix, ``models/latest-{suffix}`` is repointed as well. That second symlink
+    is what lets an orchestrator name a run without reconstructing its id: Step Functions
+    has no date formatting, so `latest-full` and `latest-narrow` are the only stable
+    handles the weekly state machine can use.
+
+    Plain ``latest`` still moves on every run, suffix or not. It means "most recently
+    trained", not "promoted" — promotion stays a human decision.
+    """
     directory = root / metadata["version"]
     directory.mkdir(parents=True, exist_ok=True)
 
@@ -109,6 +143,11 @@ def save_run(
 
     _point_latest_at(directory)
     logger.info("Saved run to %s (models/latest -> %s)", directory, directory.name)
+
+    if suffix := _validated_suffix(suffix):
+        _point_latest_at(directory, name=f"latest-{suffix}")
+        logger.info("models/latest-%s -> %s", suffix, directory.name)
+
     return directory
 
 

@@ -1,20 +1,22 @@
-# Training container for the Phase 6 modelling pipeline (GH-57).
+# Local runner for the AURUM image (GH-57, GH-72).
 #
 #   docker compose -f docker-compose.modeling.yml run --rm trainer \
-#     train -c src/modeling/configs/lgbm_xs_excess_5d.yaml
+#     model train -c src/modeling/configs/lgbm_xs_excess_5d.yaml
 #
-# Arguments after `trainer` are passed straight to `python -m src.modeling.cli`.
-# See docs/operations/training-container.md.
+# The first argument after `trainer` picks the workload — `ingest`, `dbt` or `model` —
+# and everything after it goes to that CLI unchanged. See docker/entrypoint.sh,
+# docs/operations/training-container.md and docs/infra/aws-deployment-plan.md.
 
 services:
   trainer:
     build:
       context: .
-      dockerfile: docker/modeling.Dockerfile
-    image: aurum-trainer:local
+      dockerfile: docker/aurum.Dockerfile
+    image: aurum:local
 
     # Credentials come from the same repo-root .env the host uses. Configs reference
-    # env var *names* (host: HOST), so nothing in src/modeling/configs/ changes.
+    # env var *names* (host: HOST), so nothing in src/modeling/configs/ changes — and
+    # docker/dbt/profiles.yml reads the same variables, so dbt needs no separate wiring.
     env_file:
       - .env
 
@@ -27,7 +29,7 @@ services:
       # The image carries no .git (and no git binary), so the registry cannot work out
       # which commit a run came from — every containerised run would be stamped
       # `{date}-unknown` and two on the same day would overwrite each other. Pass it in:
-      #   AURUM_GIT_SHA=$(git rev-parse HEAD) docker compose -f docker-compose.modeling.yml run --rm trainer train -c ...
+      #   AURUM_GIT_SHA=$(git rev-parse HEAD) docker compose -f docker-compose.modeling.yml run --rm trainer model train -c ...
       AURUM_GIT_SHA: ${AURUM_GIT_SHA:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"

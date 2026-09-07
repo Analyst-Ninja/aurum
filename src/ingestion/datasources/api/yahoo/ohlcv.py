@@ -1,7 +1,7 @@
 import logging
 from datetime import date, datetime, timedelta
 from itertools import batched
-from typing import Dict, Any
+from typing import Any, Dict, Iterator
 import yfinance as yf
 
 import pandas as pd
@@ -26,6 +26,23 @@ class OHLCVDataSource(BaseDatasource):
         run_date: str,
         watermarks: Dict[str, date] | None = None,
     ) -> pd.DataFrame:
+        """The whole pull as one frame. Prefer ``read_data_chunks`` — a first load with no
+        watermark is 503 symbols from 2000 to today, and concatenating that here is what
+        made the frame, not the write, the thing that would not fit in memory."""
+        frames = list(self.read_data_chunks(run_date, watermarks))
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+    def read_data_chunks(
+        self,
+        run_date: str,
+        watermarks: Dict[str, date] | None = None,
+    ) -> Iterator[pd.DataFrame]:
+        """One frame per symbol batch, yielded as it is fetched.
+
+        The batching is unchanged — the same ``batched(..., batch_size)`` loop, still
+        serial, still self-throttled. The only difference is that a batch is handed to the
+        caller instead of being appended to a list that is concatenated at the end.
+        """
         symbols = get_snp500_symbols(self.user_agent, self.timeout)
         watermarks = watermarks or {}
         run_day = datetime.strptime(run_date, "%Y-%m-%d").date()
@@ -40,7 +57,6 @@ class OHLCVDataSource(BaseDatasource):
                     continue
             groups.setdefault(start, []).append(symbol)
 
-        frames = []
         for start, grouped_symbols in groups.items():
             for chunk in batched(grouped_symbols, self.config.get("batch_size", 100)):
                 raw = yf.Tickers(list(chunk)).history(
@@ -52,9 +68,7 @@ class OHLCVDataSource(BaseDatasource):
                 if raw is None or raw.empty:
                     self.logger.info("no rows for chunk starting %s", chunk[0])
                     continue
-                frames.append(self._normalize(raw))
-
-        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+                yield self._normalize(raw)
 
     def write_data(self, run_date:str, data: pd.DataFrame) -> None:
         """Not Required for an API"""

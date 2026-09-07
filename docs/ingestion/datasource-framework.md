@@ -68,7 +68,7 @@ Both are ABCs, not protocols — subclass them.
 | `BaseDatasource` (`datasources/base_datasource.py`) | `read_data(run_date, watermarks) -> DataFrame`, `write_data(run_date, df)` | `OHLCVDataSource`, `FinancialStmtsDatasource`, `PostgresDataSource` |
 | `BaseFeed` (`feed/base_feed.py`) | `process(df) -> DataFrame` | `Ohlcv1d`, `Ohlcv1min`, the six `*Statements` feeds |
 
-Every datasource implements **both** methods, but only one side does real work: API sources stub `write_data` with `...`, and the Postgres sink stubs `read_data`. Sinks additionally implement `get_watermarks`, `connect`, and `disconnect` (declared abstract on the intermediate `Database` class in `datasources/storage/db.py`).
+Every datasource implements **both** methods, but only one side does real work: API sources stub `write_data` with `...`, and the Postgres sink stubs `read_data`. Sinks additionally implement `get_watermarks`, `get_max_value`, `connect`, and `disconnect` (declared abstract on the intermediate `Database` class in `datasources/storage/db.py`).
 
 `BaseFeed` owns the entire run loop — metrics, execution id, PK stamping, error handling. A feed subclass writes **only** `process()`.
 
@@ -162,6 +162,32 @@ sequenceDiagram
 
 The **incremental behaviour** lives in the grouping step: a symbol whose watermark is already at or past `run_date` is skipped entirely — zero API calls. A missing landing table makes `get_watermarks` return `{}` (logged, not raised), so the first run naturally behaves as a full load.
 
+### The staleness gate
+
+A feed that carries `min_refresh_gap_days` in its YAML is checked **before** anything is
+fetched. `src/ingestion/freshness.py` reads `MAX("RUN_DATE")` from the landing table and
+compares it to the run date:
+
+| Landing table | Gap vs `run_date` | Outcome |
+|---|---|---|
+| missing, or empty, or `RUN_DATE` unparseable | — | runs (nothing to be fresh) |
+| loaded | `>= min_refresh_gap_days` | runs |
+| loaded | `< min_refresh_gap_days` | `execution_status = "SKIPPED_FRESH"`, `row_count = 0`, exit 0 |
+
+`SKIPPED_FRESH` is a **success** — `cli.py` only exits non-zero on `FAILED`, so a skip
+leaves the `&&` chain and Step Functions green.
+
+This exists for EDGAR. Those configs are `full_load: true` with no watermark to resume
+from, so every run re-pulls the whole history — ~1.9M rows, ~27 minutes across the six
+statement configs — against a source that only moves when a company files. The six EDGAR
+configs set `min_refresh_gap_days: 10`; the market feeds omit the key and are never gated,
+because their watermarks already make a same-day rerun nearly free.
+
+**`src/ingestion/truncate.py` is gated by the same check, and is gated first.** Truncating
+empties the table the gate measures, so a truncate that ran while the feed skipped would
+make every later run look stale and the gate would never fire again. `truncate` takes
+`-d/--run_date` for that reason and returns `None` when it skips.
+
 ---
 
 ## 6. Config is the whole wiring
@@ -174,6 +200,9 @@ type: "ohlcv_1d"               # → FEED_REGISTRY key
 full_load: false               # informational only — the CLI -f value is what runs
 watermark_group_by: "SYMBOL"   # passed to get_watermarks()
 watermark_date_column: "DATE"
+# min_refresh_gap_days: 10     # optional staleness gate — skip the run when the landing
+#                              # table's newest RUN_DATE is younger than this. Omitted
+#                              # here: the market feeds are watermarked. Set on EDGAR.
 
 input_datasource:
   type: "yahoo_ohlcv"          # → DATASOURCE_REGISTRY key

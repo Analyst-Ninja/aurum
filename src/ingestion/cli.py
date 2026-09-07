@@ -1,5 +1,6 @@
 import argparse
 import logging
+import sys
 from datetime import datetime
 
 from src.ingestion.runner import run_feed
@@ -36,7 +37,17 @@ def main():
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
 
-    run_feed(args.config, args.run_date, args.full_load)
+    metrics = run_feed(args.config, args.run_date, args.full_load)
+
+    # BaseFeed.run() catches everything and reports the failure in the metrics dict
+    # rather than raising, so without this the process exits 0 on a broken feed and an
+    # orchestrator (Step Functions, cron) records a green run. SUCCESS_NO_DATA is not a
+    # failure — a market holiday legitimately returns no rows.
+    if metrics.get("execution_status") == "FAILED":
+        logging.error(
+            "Feed failed: %s", metrics.get("error_message", "no error message recorded")
+        )
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

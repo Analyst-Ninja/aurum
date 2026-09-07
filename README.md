@@ -101,11 +101,12 @@ Design phase complete (spec v2.0, 2026-07-12). Implementation is mid-Phase 0 —
 - `src/ingestion/` — the config-driven framework described above. Yahoo OHLCV (1d, 1min) and EDGAR income / cash-flow / balance-sheet statements (yearly + quarterly) land **directly in Postgres**; Kafka is not in the code path yet.
 - Watermark-based incremental loading against the landing tables.
 - `src/transformation/aurum_dwh/` — the **full bronze / silver / gold medallion**, built and tested: 8 `br_*` mirrors, 3 `stg_*` models, 5 `int_*` feature models, 4 `mart_*` marts, 3 seeds and 237 dbt tests. `gold.mart_features` is ~2.9M rows across 503 symbols from 2000 to today, with point-in-time fundamentals, ~120 raw features and a per-date cross-sectional block (`_z` / `_decile` / `_vs_sector` on 36 of them); `gold.mart_training_set` adds forward-return targets and walk-forward folds. It runs against local **Postgres**, not Snowflake. See the [Warehouse guide](docs/warehouse/dwh-medallion.md).
-- CI: ruff lint + SonarCloud quality gate on `main`, `develop`, `epic/*`, and PRs.
+- CI: ruff lint + pytest + SonarCloud quality gate on `main`, `develop`, `epic/*`, and PRs.
+- **Runs on AWS, unattended.** RDS Postgres, one image on ECR, four ECS Fargate task definitions and three Step Functions state machines on EventBridge Scheduler crons — market ingest plus the dbt build every weeknight, EDGAR on the 1st and 15th, the full modelling loop on the 1st. Failures publish to SNS and end the execution red. All Terraform, in `infra/terraform/`. See the [AWS deployment](docs/infra/aws-deployment-plan.md).
 
 **Designed, in flight**
 
-- **Phase 6 — modelling.** `docs/modeling/` specifies preprocessing, purged walk-forward training, SHAP feature selection, backtesting and the retraining policy: 5-day horizon, regression on `fwd_ret_5d_excess` (market-neutral excess return), LightGBM, flat-file model registry, containerized training. Tracked as epic [#50](https://github.com/Analyst-Ninja/aurum/issues/50). No code under `src/modeling/` yet — start at the [Modelling design](docs/modeling/modeling-design.md).
+- **Phase 6 — modelling.** `docs/modeling/` specifies preprocessing, purged walk-forward training, SHAP feature selection, backtesting and the retraining policy: 5-day horizon, regression on `fwd_ret_5d_excess` (market-neutral excess return), LightGBM, flat-file model registry, containerized training. Tracked as epic [#50](https://github.com/Analyst-Ninja/aurum/issues/50) and built under `src/modeling/` — start at the [Modelling design](docs/modeling/modeling-design.md).
 
 **Not built yet**
 
