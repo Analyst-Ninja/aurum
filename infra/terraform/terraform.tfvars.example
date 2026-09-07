@@ -3,7 +3,16 @@
 db_password    = "change-me-a-long-random-string"
 sec_user_agent = "Your Name your.email@example.com"
 
-# alert_email is added in GH-75, with the SNS subscription that uses it.
+# Step Functions failures and the budget alarms publish here. The SNS subscription is
+# created `pending confirmation` — click the link in the confirmation email once, or
+# failures are silent.
+alert_email = "you@example.com"
 
-# Set per deploy: `make push` prints the tag it pushed.
+# Ceiling for the AWS Budgets alarm; 80% actual and 100% forecasted both notify.
+# monthly_budget_usd = 150
+
+# REQUIRED, and there is no default. The ECR repository is IMMUTABLE, so there is no
+# floating `latest` tag to fall back on — a task definition pointing at one fails its pull
+# with `CannotPullContainerError ... not found`. `make push` prints the tag it pushed.
+# Set it here, or pass -var="image_tag=$(git rev-parse --short HEAD)" on every apply.
 # image_tag = "a3aff7a"

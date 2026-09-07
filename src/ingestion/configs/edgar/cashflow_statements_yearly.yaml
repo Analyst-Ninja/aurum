@@ -1,6 +1,12 @@
 feed_name: "cashflow_stmts_yearly"
 type: "cashflow_stmts_yearly"
 full_load: true
+# Staleness gate (GH-75). EDGAR is a full re-pull with no watermark: ~1.9M rows and ~27
+# minutes across the six configs, against a source that only moves when a company files.
+# Below this many days since the landing table's newest RUN_DATE the run is skipped —
+# truncate and load both, so the table is never emptied by a run that then skips.
+# An absent or empty table is always stale, so a first load is never gated.
+min_refresh_gap_days: 10
 input_datasource:
   type: "edgar_financials"
   name: "edgar_cashflow_stmts_source"

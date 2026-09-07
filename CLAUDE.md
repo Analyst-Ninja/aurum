@@ -11,9 +11,20 @@ What actually exists and runs today:
 - `src/ingestion/` — a working config-driven ingestion framework (Yahoo OHLCV + EDGAR financial statements → **Postgres directly**, no Kafka in the code path yet).
 - `src/transformation/aurum_dwh/` — a dbt project pointed at **Postgres** (not Snowflake), with the full medallion **bronze**, **silver** and **gold** layers built and tested: 8 `br_*` mirrors, 3 `stg_*` models, 5 `int_*` feature models, 4 `mart_*` marts, 3 seeds, 237 tests (2 warn on documented real-data outliers, 0 error). The `dbt init` example models are gone. `gold.mart_features` holds ~2.9M rows across 503 symbols, 2000 → today. `docs/warehouse/dwh-medallion.md` documents it as built.
 - `src/feed/`, `src/inference/`, `src/mcp/`, `airflow/`, `infra/` — empty `__init__.py` placeholders. `main.py` is empty.
+- **`AURUM_NUM_THREADS` overrides LightGBM's thread count.** `ModelParams.num_threads` defaults to 4, tuned for an Apple Silicon laptop whose efficiency cores drag every boosting barrier. Fargate vCPUs are homogeneous, so the ECS train task sets this to its vCPU count; an explicit value in the YAML still beats both.
 - **Phase 6 (modeling) is built** (#51–#57). `docs/modeling/` (6 docs) specifies preprocessing, purged walk-forward training, SHAP selection, backtesting and the retraining policy; tracked as epic [#50](https://github.com/Analyst-Ninja/aurum/issues/50) with children #51–#57. Primary target `fwd_ret_5d_excess`, LightGBM regression, flat-file registry under `models/`. `docs/modeling/pipeline-runbook.md` walks the 11-step run.
 - `tests/` holds 95 unit tests over `src/modeling/` and `src/ingestion/`, and the pytest step in CI is live (GH-57). `docker/aurum.Dockerfile` + `docker/entrypoint.sh` + `docker-compose.modeling.yml` run **all three** workloads — ingestion, dbt and modelling — against a pinned dependency set. No Airflow/MLflow/serving.
-- **AWS deployment is planned, not built** — epic [#71](https://github.com/Analyst-Ninja/aurum/issues/71): RDS Postgres, one image on ECR run as ECS Fargate tasks, Step Functions schedules (market daily, EDGAR monthly, dbt+train weekly), Terraform in `infra/terraform/`. `docs/infra/aws-deployment-plan.md` is the plan; `infra/` is still an empty placeholder.
+- **AWS deployment is built and running on a schedule** — epic [#71](https://github.com/Analyst-Ninja/aurum/issues/71): RDS Postgres, one image on ECR run as four ECS Fargate task definitions, three Step Functions state machines on EventBridge Scheduler crons. Terraform in `infra/terraform/` (`main.tf`, `rds.tf`, `tasks.tf`, `sfn.tf`, `outputs.tf`). `docs/infra/aws-deployment-plan.md` documents it as built, with the schedule DAG and a troubleshooting table.
+
+  | State machine | Cron (UTC) | States |
+  |---|---|---|
+  | `aurum-daily-market` | `cron(30 22 ? * MON-FRI *)` | `ingest-market` → `dbt` |
+  | `aurum-semimonthly-edgar` | `cron(0 6 1,15 * ? *)` | `ingest-market` → `ingest-edgar` → `dbt` |
+  | `aurum-monthly-train` | `cron(0 12 1 * ? *)` | `train` |
+
+  **dbt runs after every ingest.** `gold.mart_features` is only as fresh as the last build, and the EDGAR cron fires on any weekday *or weekend* while the daily machine is MON-FRI only — so the EDGAR machine carries its own `dbt` state rather than waiting for the daily one. It ingests prices before fundamentals because the silver models join the two, and a build over fresh statements and stale prices would be as-of two different dates. On the 1st the three machines run in dependency order: market+EDGAR+dbt 06:00, train 12:00, market+dbt 22:30.
+
+  Each task definition's `command` holds the **whole** logical workflow (`sh -c "a && b && c"`), so the state machines are one or two states rather than the ten the original plan described — see `docs/infra/aws-deployment-plan.md` §2.3 for the trade. `dbt` and `train` deliberately stay separate states: a dbt failure must never reach training. Every ECS state is `ecs:runTask.sync`, which fails on a non-zero container exit, so `src/ingestion/cli.py`'s `sys.exit(1)` is load-bearing. Failures publish to SNS **and** end the execution red.
 
 `README.md` ("Current state") and `docs/ingestion/datasource-framework.md` describe the code as it is; `docs/architecture/TECHNICAL_SPEC.md` describes the target. `repo_structure.md` is an aspirational tree and does not match `src/`.
 
@@ -34,6 +45,11 @@ uv run python -m src.ingestion.cli -c src/ingestion/configs/yahoo/ohlcv_1d.yaml 
 uv run python -m src.ingestion.cli -c src/ingestion/configs/edgar/income_statements_quarterly.yaml -d 2026-01-01
 #   -c/--config  path to feed YAML     -d/--run_date  default today
 #   -f/--full_load  True|False, default True — False resumes from the watermarks
+
+# empty a feed's landing table before a full reload (GH-75). Only the EDGAR task uses it,
+# once per config, immediately before that config's load.
+uv run python -m src.ingestion.truncate -c src/ingestion/configs/edgar/income_statements_quarterly.yaml
+#   -d/--run_date  default today — the date the min_refresh_gap_days staleness gate measures against
 
 # dbt (project dir must be the dbt project root)
 # dbt lives in the `dbt` dependency group, NOT the default sync — `--group dbt` is required on every call
@@ -91,6 +107,21 @@ configs/*.yaml ──▶ runner.run_feed() ──▶ factory.create_feed()  ─�
 - **Incremental by watermark** — when `full_load` resolves to `False`, the feed calls `output_ds.get_watermarks(group_by, date_column)`, which `SELECT MAX(date) GROUP BY symbol` on the landing table; the datasource then starts each symbol the day after its watermark. A missing table returns `{}` (first run) rather than erroring. Don't add full-refresh paths. `-f/--full_load` is an explicit `True|False` and **defaults to `True`**, so incremental runs need `-f False`; the YAML's `full_load` key is not read.
 - **Column convention: uppercase.** Feeds uppercase every column in `process()`; configs, `cols_for_pk`, and watermark columns are all uppercase (`SYMBOL`, `DATE`, `QTR`). Postgres identifiers are quoted, so case matters.
 - **Deterministic PK** — `_add_write_metadata` md5s the `cols_for_pk` values into the `primary_key` column. Both keys are required in the output config or the run fails.
+- **The read streams into the write.** `BaseFeed.run` iterates `input_ds.read_data_chunks(...)` and processes/writes each chunk before fetching the next, so peak memory is one batch rather than the whole pull. `BaseDatasource.read_data_chunks` defaults to yielding the single frame `read_data` returns, so a source that does not page (EDGAR) is unchanged; `OHLCVDataSource` overrides it and yields per `batch_size` symbol batch. **`process()` therefore runs once per chunk and must stay row-wise** — no cross-symbol or cross-date aggregation in a feed.
+- **`batch_size` is the memory knob.** For Yahoo it sets both the request size and the size of the frame held in memory: 100 symbols × 26 years is ~650k rows. Lower it for a backfill on a small task.
+- **The sink writes in chunks.** `Database.write_data` passes `chunksize=WRITE_CHUNK_ROWS` (50k) to `to_sql`; without it pandas builds the parameter list for the whole frame first, so peak memory tracks row count. That is fine for a daily increment and fatal for a first load — with no watermark to resume from a feed pulls 503 symbols from 2000 to today in one frame, which OOM-killed the 8 GB ingest task (exit 137) on 2026-09-06. Chunking bounds the batch, not the frame; it is not a speed change.
+- **The staleness gate skips a run whose landing table is still fresh.** A config carrying
+  `min_refresh_gap_days` (the six EDGAR configs set `10`) is checked by
+  `src/ingestion/freshness.py` before any fetch: it reads `MAX("RUN_DATE")` from the landing
+  table and, if the gap to `run_date` is under the threshold, the feed returns
+  `execution_status="SKIPPED_FRESH"` with `row_count=0` and **exits 0** — the CLI only exits
+  non-zero on `FAILED`. A missing, empty, or unparseable table is always stale, so a first
+  load is never gated. `src/ingestion/truncate.py` runs the same check, and must: truncating
+  resets the value the gate measures, so an ungated truncate would make every later run look
+  stale. It takes `-d/--run_date` and returns `None` when it skips. The market feeds omit the
+  key and are never gated.
+- **A fresh database means a full load, whatever `-f` says.** `get_watermarks` returns `{}` when the landing table does not exist, so `-f False` against an empty RDS pulls the entire history. Size the task accordingly — `tasks.tf` sizes `aurum-ingest-market` for daily increments, and a backfill needs `run-task --overrides` with more memory.
+- **The sink appends and does not deduplicate.** `Database.write_data` is `to_sql(if_exists="append")` and there is no unique index on `MD5_HASH`. For watermarked feeds that is fine — they only fetch new rows. The EDGAR feeds are `full_load: true` with no watermark columns, so every run re-pulls the whole history and would duplicate ~1.9M rows; `src/ingestion/truncate.py` empties each landing table first, which makes it match the `full_load` contract the config already declares. Run it **per config**, not once for all six: a failure halfway through then leaves one table empty rather than all six.
 - Config secrets are **env var *names***, not values: `username: "AURUM_USERNAME"` is `os.getenv`-ed at connect time from `.env` (`HOST`, `PORT`, `AURUM_USERNAME`, `AURUM_PASSWORD`, `SEC_USER_AGENT`).
 
 Adding a source: new class in `datasources/api/<vendor>/` with `@register_datasource`, new feed in `feed/` with `@register_feed`, new YAML in `configs/<vendor>/`, then import both in `runner.py`.

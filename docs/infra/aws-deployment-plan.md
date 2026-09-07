@@ -1,10 +1,11 @@
 # AURUM — AWS Deployment Plan
 
-**Status:** Partly built — infrastructure applied and every task verified by hand
+**Status:** Built — infrastructure applied, every task verified by hand, and **all three
+schedules live**
 ([#73](https://github.com/Analyst-Ninja/aurum/issues/73),
-[#78](https://github.com/Analyst-Ninja/aurum/issues/78) done;
-[#74](https://github.com/Analyst-Ninja/aurum/issues/74) in progress;
-[#75](https://github.com/Analyst-Ninja/aurum/issues/75) not started — **nothing is scheduled yet**)
+[#78](https://github.com/Analyst-Ninja/aurum/issues/78),
+[#74](https://github.com/Analyst-Ninja/aurum/issues/74),
+[#75](https://github.com/Analyst-Ninja/aurum/issues/75) done)
 **Date:** 2026-09-06
 **Related:** [../operations/infra-as-code.md](../operations/infra-as-code.md) ·
 [../operations/training-container.md](../operations/training-container.md) ·
@@ -37,66 +38,183 @@ automatic promotion, multiple environments, Multi-AZ.
 
 ## 2. Schedules
 
-| State machine | Cron (UTC) | Steps |
+| State machine | Cron (UTC) | States |
 |---|---|---|
-| `aurum-daily-market` | `cron(30 22 ? * MON-FRI *)` | `ingest yahoo/ohlcv_1d -f False` |
-| `aurum-monthly-edgar` | `cron(0 6 1 * ? *)` | `Map` over the 6 EDGAR configs, `MaxConcurrency: 1` |
-| `aurum-weekly-model` | `cron(0 2 ? * SAT *)` | the full modelling loop — 10 states, §2.1 |
+| `aurum-daily-market` | `cron(30 22 ? * MON-FRI *)` | `ingest-market` → `dbt` |
+| `aurum-semimonthly-edgar` | `cron(0 6 1,15 * ? *)` | `ingest-market` → `ingest-edgar` → `dbt` |
+| `aurum-monthly-train` | `cron(0 12 1 * ? *)` | `train` |
 
-dbt runs weekly, before training, in the same state machine — a dbt failure must never reach
-`train`. The daily job only ingests.
+**Every ingest is followed by the build that consumes it.** `gold.mart_features` is only as
+fresh as the last `dbt build`, so both ingest machines end in one — putting dbt in front of
+a monthly training run instead would leave the marts up to 30 days stale for everything else
+that reads them. It always runs strictly *after* the ingest state, so a broken feed never
+feeds a green warehouse build.
 
-### 2.1 The weekly chain
+The EDGAR machine needs its own dbt state rather than borrowing the daily one: this cron
+fires on any day of the week, the daily machine is MON-FRI only, so fundamentals landed on a
+Saturday the 15th would otherwise sit unbuilt until Monday 22:30 — about 64 hours.
 
-Not train-and-backtest. The pipeline in
-[`pipeline-runbook.md`](../modeling/pipeline-runbook.md) trains on every feature, ranks
-features with SHAP, retrains on the narrowed set, then **compares the two on the holdout**.
-That comparison is what says whether the narrowed model is worth migrating to.
+It also ingests **prices first, fundamentals second, build last**. The silver and
+intermediate models join fundamentals onto the price panel; building fresh statements
+against a stale price history would produce a mart whose two halves are as-of different
+dates. Duplicating the market ingest on the 1st and 15th is harmless — both Yahoo feeds
+resume from `SELECT MAX(date) GROUP BY symbol`, so the 22:30 run simply picks up whatever
+the 06:00 run did not, and on a weekend they return `SUCCESS_NO_DATA`, which is not a
+failure.
 
-The same two task definitions run throughout; only `command` changes.
+**dbt runs after every ingest, not on its own cadence.** Twice-monthly builds would in fact
+be *safe* — the intermediate models read `window_lookback_days: 900` and rewrite the
+trailing `window_rewrite_days: 90`, so a 15-day gap sits at roughly 6× margin inside the
+rewrite tail. It was rejected anyway: it would make `gold.mart_features` lag prices by up to
+two weeks between builds, and the marts are meant to be queryable, not a monthly batch
+artifact.
 
-| # | Task def | Command |
+The 1st of a month carries all three, ordered along the dependency and not overlapping.
+
+### 2.1 The DAG
+
+The edges below are **data** dependencies, not Step Functions transitions. Ingest states
+write landing tables, dbt reads them and builds the medallion, train reads
+`gold.mart_features`. Nothing waits on anything across machines; the ordering holds because
+each downstream job runs later in wall-clock and reads whatever is committed by then — and
+because every ingest is followed, inside its own machine, by the build that consumes it.
+
+```mermaid
+flowchart LR
+  subgraph daily["aurum-daily-market · cron(30 22 ? * MON-FRI *)"]
+    IM["ingest-market<br/>ohlcv_1d + ohlcv_1min<br/>-f False"] --> DBT["dbt<br/>seed + build<br/>237 tests"]
+  end
+
+  subgraph semi["aurum-semimonthly-edgar · cron(0 6 1,15 * ? *)"]
+    IM2["ingest-market<br/>same feeds, incremental"] --> IE["ingest-edgar<br/>truncate + load ×6<br/>serial, SEC 10 req/s"]
+    IE --> DBT2["dbt<br/>seed + build<br/>237 tests"]
+  end
+
+  subgraph monthly["aurum-monthly-train · cron(0 12 1 * ? *)"]
+    TR["train<br/>full → SHAP → narrow<br/>→ compare → backtest"]
+  end
+
+  LAND[("Postgres landing<br/>public.*")]
+  GOLD[("gold.mart_features<br/>~2.9M × 228")]
+  REG[("EFS models/<br/>latest-full, latest-narrow")]
+
+  IM --> LAND
+  IM2 --> LAND
+  IE --> LAND
+  LAND --> DBT
+  LAND --> DBT2
+  DBT --> GOLD
+  DBT2 --> GOLD
+  GOLD --> TR
+  TR --> REG
+```
+
+The 1st of a month, the only day all three fire. Wall-clock order follows the dependency —
+ingest, then the build that consumes it, then the model that reads the build:
+
+```
+06:00-08:00  market → edgar → dbt   prices, then six statement tables, then one build over both
+12:00-13:00  train                  reads the marts that build just produced
+22:30-23:30  market → dbt           the day's closing prices, and a second build
+```
+
+The 06:00 → 12:00 gap is deliberate slack: the market leg plus EDGAR's ~27 minutes plus the
+build after them runs roughly two hours, leaving margin before training reads
+`gold.mart_features`. Training at 02:00 — where it sat in the first draft — would have read
+fundamentals up to two weeks stale while a fresher set landed four hours later.
+
+### 2.2 The state graph
+
+Same shape for all three machines; only the ECS states differ.
+
+```mermaid
+flowchart TD
+  S([Start]) --> A["ingest-market<br/>runTask.sync · FARGATE<br/>Timeout 5400s · Retry ×2 60s b2.0"]
+  A -->|ok| B["dbt<br/>runTask.sync · FARGATE<br/>Timeout 5400s · Retry ×2 60s b2.0"]
+  B -->|ok| OK([Succeed])
+  A -.->|"Catch States.ALL"| N
+  B -.->|"Catch States.ALL"| N
+  N["NotifyFailure<br/>sns:publish → aurum-alerts<br/>$.error.Error, $.error.Cause"] --> F([Fail])
+```
+
+`aurum-semimonthly-edgar` is the same graph with three ECS states —
+`ingest-market` → `ingest-edgar` (Retry ×1) → `dbt` — every one of them catching to the same
+`NotifyFailure`. `aurum-monthly-train` is the same graph with one ECS state (`train`,
+Timeout 10800 s, **no
+Retry** — a one-hour fit that OOMs does not succeed on a blind second attempt, and it is
+the most expensive task in the account).
+
+`NotifyFailure` publishes and then transitions to `Fail`, so a broken job produces **both**
+an email and a red execution — never a green one that quietly emailed someone.
+
+### 2.3 Why the ten-state chain collapsed to one task
+
+The original design ran one Fargate task per CLI invocation: ten states for the modelling
+loop alone. What ships instead puts the whole logical workflow in each task definition's
+`command` — `sh -c "a && b && c"`, which stops at the first non-zero exit, exactly the
+semantics the ten-state chain was hand-building with `Next`.
+
+| | Ten states | One task |
 |---|---|---|
-| 1 | `aurum-dbt` | `dbt seed` |
-| 2 | `aurum-dbt` | `dbt build` |
-| 3 | `aurum-train` | `model train -c /app/models/configs/lgbm_xs_excess_5d.yaml --version-suffix full` |
-| 4 | `aurum-train` | `model evaluate -c <base> --version latest-full` |
-| 5 | `aurum-train` | `model select-features -c <base> --version latest-full` |
-| 6 | `aurum-dbt` | `sh -c "cp the seed into the dbt project && dbt seed --select selected_features && dbt build --select mart_feature_summary"` |
-| 7 | `aurum-train` | `model train -c ..._narrow.yaml --version-suffix narrow` |
-| 8 | `aurum-train` | `model evaluate -c <narrow> --version latest-narrow` |
-| 9 | `aurum-train` | `model compare -c <narrow> --version latest-narrow --baseline latest-full` |
-| 10 | `aurum-train` | `model backtest -c <narrow> --version latest-narrow` |
+| Container starts per weekly run | 10 (~40 s PROVISIONING + image pull each) | 1 |
+| Passing `<config>_narrow.yaml` between steps | needs the base config on EFS, because the narrow path is *derived* | a file in the same container |
+| Failure at step 7 of 8 | resume from step 7 | restart from step 1 (~35 min wasted) |
+| Diagnosis | which box went red | read the CloudWatch log stream |
 
-Three things make this work, and none of them are obvious:
+For four scheduled jobs and one operator, that is the right trade. **The one exception is
+`dbt` versus `train`**, which stay separate task definitions and separate states: a dbt
+failure must never reach `train` — training on a half-built `mart_features` produces a
+model that looks fine and is not — and there is no reason to start a 4 vCPU / 16 GB task
+to discover dbt is broken.
 
-- **`--version-suffix` is required, not cosmetic.** Both trains run on the same day from the
-  same image, so `version_id()` — `{date}-{git short sha}` — produces the *same id* for both,
+Everything the ten-state table used to specify still happens, in `tasks.tf`'s `train`
+command: `train --version-suffix full`, `evaluate`, `select-features`, the seed copy plus
+`dbt seed --select selected_features && dbt build --select mart_feature_summary`,
+`train --version-suffix narrow`, `evaluate`, `compare`, `backtest`. The three non-obvious
+constraints are unchanged and still hold:
+
+- **`--version-suffix` is required, not cosmetic.** Both fits run on the same day from the
+  same image, so `version_id()` — `{date}-{git short sha}` — produces the same id for both,
   and the narrowed run would overwrite the baseline it is meant to be compared against. The
-  flag also publishes `models/latest-full` and `models/latest-narrow`, which is how the states
-  above name their inputs: ASL has no date formatting, so the state machine cannot rebuild
-  `20260906-a3aff7a-narrow` on its own.
+  flag also publishes `models/latest-full` and `models/latest-narrow`, which is how the
+  later steps name their inputs.
 - **The base config lives on EFS, not in the image.** `select-features` writes the generated
-  `<config>_narrow.yaml` beside the base config, and that path is derived rather than
-  configurable. Every state is a fresh container, so a config baked into the image would take
-  the generated narrow config down with it when the task exits.
-- **State 6 copies the seed into the dbt project directory first.** dbt reads the seed CSV from
-  there, not from the config's `seed_path`. And `dbt seed` must precede
-  `dbt build --select mart_feature_summary`, because the mart reads the Postgres table rather
-  than the CSV.
+  `<config>_narrow.yaml` beside the base config, at a derived path. Keeping the base config
+  at `/app/models/configs/` puts the generated sibling on EFS with no code change.
+- **The seed is copied into the dbt project directory first**, and `dbt seed` precedes
+  `dbt build --select mart_feature_summary`, because the mart reads the Postgres table
+  rather than the CSV.
 
-**Promotion stays manual.** `compare` writes `comparison.json` with a `narrowed_wins` verdict
-and promotes nothing, which matches
-[training-and-retraining.md](../modeling/training-and-retraining.md) — it treats the two-sided
-gate as a judgement call.
+**Promotion stays manual.** `compare` writes `comparison.json` with a `narrowed_wins`
+verdict and promotes nothing, which matches
+[training-and-retraining.md](../modeling/training-and-retraining.md) — the two-sided gate
+is a judgement call.
 
-Note that `models/latest` **does** move: `save_run` repoints it on every train, so after state 7
-it points at the narrowed run whether or not that run won. `latest` means "most recently
-trained", not "blessed"; `latest-full` and `latest-narrow` are the names that carry meaning.
-The loop also does **not** commit `selected_features.csv` back to git the way the manual runbook
-does — it lives on EFS, and you copy it into the repo by hand if you keep the narrowed model.
+`models/latest` **does** move: `save_run` repoints it on every train, so after the narrowed
+fit it points there whether or not that fit won. `latest` means "most recently trained",
+not "blessed"; `latest-full` and `latest-narrow` are the names that carry meaning. The
+automated loop also does **not** commit `selected_features.csv` back to git the way the
+manual runbook does — it lives on EFS, and you copy it into the repo by hand if you keep
+the narrowed model.
 
-Weekly runtime is roughly an hour: two fits (~30 min on 193 features, ~5 min on 40) plus SHAP.
+### 2.4 EDGAR truncates before it loads
+
+The EDGAR configs are `full_load: true`, carry no `watermark_group_by`/
+`watermark_date_column`, and their `cols_for_pk` is `(SYMBOL, QTR, CONCEPT)` with no date
+column — so `-f False` has nothing to resume from and every run re-pulls the full history.
+`Database.write_data` uses `to_sql(if_exists="append")` with no unique index on `MD5_HASH`,
+so a second run duplicated every row: ~1.9M each time, growing linearly. Twice a month is
+~45M junk rows a year. Bronze deduplicates downstream so the warehouse stayed correct, but
+the landing tables did not.
+
+`python -m src.ingestion.truncate -c <config>` empties the config's landing table first,
+making it match the contract the config already declares: one full snapshot per run. A
+missing table is a no-op, so the first run is unaffected.
+
+It runs **per config, immediately before that config's load**, not once for all six up
+front. A failure halfway through then leaves at most one table empty rather than all six —
+which matters because the 22:30 dbt build would otherwise turn a 06:00 EDGAR failure into a
+mart with no fundamentals at all.
 
 ## 3. Architecture
 
@@ -109,6 +227,20 @@ EventBridge Scheduler (3 crons) → Step Functions (3) ──runTask.sync──�
                                           EFS /app/models, /app/data ◀─────────┤
                                           Yahoo / SEC ◀──── IGW, no NAT ───────┘
 ```
+
+`runTask.sync` waits for the task and fails the state on a **non-zero container exit**,
+which is what makes #72's exit-code fix load-bearing: `src/ingestion/cli.py` turns a
+swallowed feed exception into `exit 1`, without which a broken feed would record a green
+execution. `.sync` also needs `events:PutRule`/`PutTargets`/`DescribeRule` on the managed
+`StepFunctionsGetEventsForECSTaskRule` — omitting it is the most common reason a state
+fails with `AccessDeniedException` before the task ever starts.
+
+No state supplies `ContainerOverrides`. Each task definition's own `command` *is* the
+workflow (§2.3); overriding it from ASL would put the pipeline in two places at once.
+
+**On-demand `FARGATE` throughout, not Spot.** The original plan put ingest and dbt on Spot;
+at under a dollar a month of Fargate spend against a ~$122 bill, Spot saves cents and adds
+an interruption failure mode to a state that is waiting synchronously.
 
 All four task definitions run the **same image** from one ECR repo, differing only in `command`,
 cpu/memory, and which env and secrets they receive.
@@ -137,23 +269,28 @@ ingestion and would have made the weekly `dbt build` unusable. The instance was 
 
 | Item | ~USD/mo |
 |---|---|
-| RDS `db.m7g.large`, 30 GB gp3, 7-day backups | 118 |
+| RDS `db.m7g.large`, 100 GB gp3, 7-day backups | 126 |
 | EFS (~5 GB, IA after 7 days) | 1.00 |
 | ECR (one image, 3 tags retained) | 0.75 |
-| Fargate — daily ingest, monthly EDGAR, weekly dbt + train (mostly Spot) | 0.80 |
+| Fargate on-demand — daily ingest + dbt, semi-monthly EDGAR, monthly train | 1.30 |
 | CloudWatch Logs (7-day retention) | 0.50 |
 | Public IPv4 hours (tasks, plus the RDS public address) | 0.60 |
 | Step Functions, Scheduler, SNS, SSM, S3 state | ~0.05 |
-| **Total** | **~122** |
+| **Total** | **~131** |
 
 The architecture choices made *for* the old budget all still stand on their own merits and were
 not reverted: no NAT gateway, no interface VPC endpoints, default VPC, SSM Parameter Store
 instead of Secrets Manager, one image, flat Terraform. Together they still avoid ~$61/mo, and
 none of them cost anything in capability.
 
-`db_instance_class` is a variable. Dropping to `db.t4g.small` (~$24/mo, total ~$30) is one
-apply if the weekly build turns out not to need the headroom — but note it reintroduces credit
-burn, which is what caused the original stall.
+`db_instance_class` is a variable, and **its default is `db.m7g.large`, deliberately.** The
+default was left at `db.t4g.medium` after the resize was made by hand, and a later
+destroy-and-recreate silently reverted the instance to a burstable class — CPU credits at 29
+of a possible 576, throttling to a 20% baseline the moment a build started. The default is
+what a rebuild falls back to, so it has to encode the decision, not the pre-decision state.
+
+Dropping to a burstable class is one apply if the build turns out not to need the headroom,
+but note it reintroduces credit burn, which is what caused the original stall.
 
 ### Network exposure
 
@@ -190,7 +327,7 @@ from SSM:
 | `data.sec.gov/api/xbrl/companyconcept/…` | **200**, 2,252 bytes |
 
 What SEC enforces is the honest `User-Agent` and the 10 req/s cap, both of which the ingestion
-framework already respects. The monthly EDGAR state machine in #75 is therefore built as
+framework already respects. The EDGAR state machine in #75 is therefore built as
 designed, with no local fallback.
 
 **One subnet per AZ, not every subnet.** This account's default VPC has **11** subnets — two in
@@ -201,10 +338,16 @@ source now filters on `default-for-az`, giving six.
 **`engine_version = "17"` resolved to 17.9.** The major-only pin behaved as intended: no exact
 minor to drift against `auto_minor_version_upgrade`.
 
-**The task definitions had to be applied twice.** `var.image_tag` defaults to `latest`, and ECR
-had no such tag until `make push` ran. Apply, push, then re-apply with
-`-var="image_tag=$(git rev-parse --short HEAD)"` — or pass the tag on the first apply if the
-image is already there.
+**The task definitions had to be applied twice.** `var.image_tag` used to default to `latest`,
+and ECR had no such tag. It never would have: `aws_ecr_repository.aurum` is `IMMUTABLE`, so a
+floating tag cannot be re-pointed and `make push` deliberately pushes SHA-only. A task
+definition referencing it fails the pull with
+`CannotPullContainerError: ... aurum:latest: not found`, after seven retries.
+
+The default is now **removed**, with a `validation` block that rejects `latest` outright.
+Every apply passes the tag: `terraform apply -var="image_tag=$(git rev-parse --short HEAD)"`,
+which is the line `make push` prints when it finishes. Push first, then apply — a tag that is
+not in ECR yet plans fine and fails at run time.
 
 ### Verified by hand
 
@@ -230,13 +373,15 @@ These are not preferences; each one breaks the deployment if ignored.
 | 6 | The image carries no `.git` | `AURUM_GIT_SHA` must be injected, or every run stamps `{date}-unknown` and overwrites the previous version |
 | 7 | `BaseFeed.run()` swallows exceptions and reports `execution_status: FAILED` in a dict; `run_feed()` discards that dict and `cli.main()` ignores the return | **A failed feed exits 0.** Step Functions would record a green run. Must be fixed before anything is scheduled |
 | 8 | Env var names are fixed: `HOST`, `PORT`, `AURUM_USERNAME`, `AURUM_PASSWORD`, `SEC_USER_AGENT`, `AURUM_GIT_SHA` | `src/utils/env.py` uses `load_dotenv`, which does not override real process env — so ECS-injected values win with **no code change** |
-| 9 | Training needs ≥12 GB; 8 GB is OOM-killed with exit 137 ([training-container.md](../operations/training-container.md) §5) | The train task gets 16 GB. Unrelated to the DB instance size |
+| 9 | Training needs ≥12 GB; 8 GB is OOM-killed with exit 137 ([training-container.md](../operations/training-container.md) §5) | The train task gets 8 vCPU / 32 GB. Unrelated to the DB instance size |
+| 12 | `ModelParams.num_threads` defaults to 4, tuned for an Apple Silicon laptop's performance cores | Fargate vCPUs are homogeneous, so an 8 vCPU task pinned to 4 threads wastes half of what it pays for. The train task sets `AURUM_NUM_THREADS=8` |
 | 10 | `seeds/selected_features.csv` is committed | The first training run needs no prior SHAP pass |
+| 11 | The EDGAR configs have no watermark columns and `Database.write_data` appends with no unique index on `MD5_HASH` | **Every EDGAR run duplicates ~1.9M rows.** `python -m src.ingestion.truncate` runs before each config's load (§2.4). Discovered in Part 3, fixed in Part 4 |
 
 `infra-as-code.md` §1 currently records two non-goals this plan contradicts — "no cloud provider (no
 AWS/GCP footprint in v2)" and "EDGAR producer host … SEC blocks cloud IPs — this stays a local
 process by design". Both are superseded by this document; the EDGAR one carries a verification gate
-in Part 3 rather than being waved away.
+in Part 3 rather than being waved away, and the measurement came back 200.
 
 ---
 
@@ -253,7 +398,7 @@ Rename `docker/modeling.Dockerfile` → **`docker/aurum.Dockerfile`**. New `dock
   `uv sync --locked --group dbt --group modeling --no-install-project` **without** `--no-build`.
   Copy all of `src/` and `docker/`. Run `dbt deps` at build time (constraint 3).
 - `ENV DBT_PROFILES_DIR=/app/docker/dbt`. The profile templates `{{ env_var('HOST') }}`,
-  `PORT`, `AURUM_USERNAME`, `AURUM_PASSWORD`, `dbname: aurum`, `schema: bronze`, `threads: 2`.
+  `PORT`, `AURUM_USERNAME`, `AURUM_PASSWORD`, `dbname: aurum`, `schema: bronze`, `threads: 4`.
 - `docker/entrypoint.sh` — dispatch on the first argument: `ingest` → `python -m src.ingestion.cli`,
   `dbt` → `cd` to the project dir then `dbt`, `model` → `python -m src.modeling.cli`. Anything else
   is `exec`'d verbatim so `sh` and `--help` still work.
@@ -331,8 +476,9 @@ there is no NAT.
 1. `dbt debug` — proves RDS reachability, the SSM-injected credentials, the profile and the SGs.
 2. `ingest yahoo/ohlcv_1d -f False` over a short window — proves egress works with no NAT.
 3. **EDGAR smoke gate** — one config, small window. If SEC returns 403, the Fargate address range is
-   blocked: keep the monthly EDGAR leg running locally against the RDS endpoint and skip that state
-   machine in Part 4. Everything else proceeds either way.
+   blocked: keep the EDGAR leg running locally against the RDS endpoint and skip that state machine
+   in Part 4. Everything else proceeds either way. **Measured: it returns 200** (§5.1), so the state
+   machine was built as designed.
 4. **Backfill, attended** — Yahoo full load (503 symbols, 2000 → today, ~2.9 M rows) → the 6 EDGAR
    configs serially, respecting the 10 req/s cap → `dbt seed` → `dbt build` (the slow one; watch
    `FreeStorageSpace` and `CPUCreditBalance`) → first `train --version-suffix full`, `evaluate`,
@@ -346,23 +492,45 @@ and `backtest/summary.json` — carrying a real sha, not `unknown`.
 The local Postgres is not decommissioned. It stays as the reference copy until a full week of
 scheduled runs is green.
 
-## 10. Part 4 — Schedules, alerts, documentation
+## 10. Part 4 — Schedules, alerts, documentation (built)
 
-- Three state machines. Every ECS step uses `arn:aws:states:::ecs:runTask.sync`, which waits for the
-  task and fails on a non-zero exit — this is what makes Part 1's exit-code fix load-bearing.
-  `Retry` ×2 at 60 s with backoff 2.0; `Catch: ["States.ALL"]` → SNS publish → `Fail`.
-- Three `aws_scheduler_schedule` entries, `flexible_time_window { mode = "OFF" }`.
-- One SNS topic plus an email subscription. AWS Budgets: $20/month, alerting at 80 % actual.
-- Fold the measured results back into this document — real runtimes, real cost, and a troubleshooting
-  table (SEC 403, exit 137 on train, `models/latest` missing, dbt profile not found, task stuck in
-  `PROVISIONING`, `CPUCreditBalance` at zero).
-- Add a row for this doc to [`docs/README.md`](../README.md), and note in
-  [`infra-as-code.md`](../operations/infra-as-code.md) §1 that its "no cloud provider" non-goal and
-  its "EDGAR stays local" row are superseded here.
-- Update `README.md` § Current state and the CLAUDE.md § Project state section.
+`infra/terraform/sfn.tf` — three `aws_sfn_state_machine`, three `aws_scheduler_schedule`
+(`flexible_time_window { mode = "OFF" }`, `schedule_expression_timezone = "UTC"`), two IAM
+roles, the SNS email subscription and the budget. New variables `alert_email` (no default —
+an unset address means failures are silent) and `monthly_budget_usd` (default 150).
 
-**Verify:** force one execution of each state machine; then break one deliberately and confirm the
-email arrives and the execution ends `FAILED` rather than green.
+`aws_iam_role.aurum-sfn` carries `ecs:RunTask` on the four task definitions conditioned on
+`ecs:cluster`, `ecs:StopTask`/`DescribeTasks` on `*` (task ARNs are generated at run time),
+`iam:PassRole` on both task roles, the `StepFunctionsGetEventsForECSTaskRule` grant, and
+`sns:Publish`. `aws_iam_role.aurum-scheduler` carries only `states:StartExecution` on the
+three machines.
+
+`aws_budgets_budget.aurum-monthly` is **$150**, not the $20 the original plan carried. That
+ceiling was abandoned on 2026-09-06 when RDS moved to `db.m7g.large` (§5); a budget set
+below known steady-state cost alerts every month and gets ignored. It notifies at 80 %
+`ACTUAL` and 100 % `FORECASTED`.
+
+**The SNS email subscription lands as `pending confirmation`.** Terraform cannot click the
+link. Until someone does, every failure is silent.
+
+### 10.1 Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| State fails instantly, `AccessDeniedException` on `events:PutRule` | `.sync` needs the managed `StepFunctionsGetEventsForECSTaskRule` grant | It is in `data.aws_iam_policy_document.sfn`; check the role actually attached |
+| Task stuck in `PROVISIONING` until timeout | no public IP, and there is no NAT to fall back on | `AssignPublicIp = "ENABLED"` in `local.sfn_network` |
+| Execution green, but no data landed | a feed swallowed its exception | `src/ingestion/cli.py` exits 1 on `execution_status == "FAILED"` — verify the image is new enough to carry it |
+| `train` exits 137 | OOM; 8 GB is not enough for a 2.9M × 228 panel | the task definition is 16 GB ([training-container.md](../operations/training-container.md) §5) |
+| `ingest-market` exits 137 with a bare `Killed` right after "Writing data" | a **first load**, not an increment: the landing table does not exist, so `get_watermarks` returns `{}` and the feed pulls 503 symbols from 2000 to today. The task is sized for daily increments | back-fill once with `run-task --overrides '{"cpu":"4096","memory":"30720",…}'`, one feed at a time; after that the watermark exists and the nightly run fits. `write_data` chunks at 50k rows, which bounds the batch but not the pull |
+| `dbt build` dies with `SSL SYSCALL error: EOF detected` | RDS restarted, or `CPUCreditBalance` hit zero on a burstable class | `db.m7g.large` is non-burstable; check `apply_immediately` modifications are not in flight |
+| `dbt build` exits 1 with `could not extend file ... No space left on device` | RDS is out of disk. The gold build holds `mart_features` and `mart_training_set` (~2.9M × 228 each) at once, plus one set of temp sort/hash spill files **per dbt thread** | `db_allocated_storage` is 100 GB. Autoscaling will not rescue this — it needs free space under 10% sustained and holds a 6-hour cooldown, while the build consumed 18 GB in ~35 minutes. Watch `FreeStorageSpace` |
+| SEC returns 403 | `SEC_USER_AGENT` unset or dishonest | it is on **every** task, not just EDGAR — `yahoo/ohlcv.py` scrapes the S&P 500 universe from Wikipedia, which also refuses anonymous traffic |
+| `models/latest` missing | no train has run against this EFS filesystem yet | run `aurum-monthly-train` once by hand |
+| dbt profile not found | `DBT_PROFILES_DIR` or the working directory | the entrypoint `cd`s to `/app/src/transformation/aurum_dwh`; profiles come from `docker/dbt/` |
+| Model version stamped `{date}-unknown` | the image carries no `.git` | `AURUM_GIT_SHA = var.image_tag` — apply with `-var="image_tag=$(git rev-parse --short HEAD)"` |
+| `CannotPullContainerError: ... not found` after 7 retries | the task definition names a tag that is not in ECR — classically `latest`, which an IMMUTABLE repository never has | `make push`, then apply with the short SHA it printed. `var.image_tag` has no default and rejects `latest` |
+| EDGAR row counts doubling | an image predating the truncate step | §2.4 |
+| A failure produced no email | the SNS subscription is still `pending confirmation` | click the link once |
 
 ## 11. Verification
 
@@ -382,27 +550,46 @@ aws ecs run-task --cluster aurum --task-definition aurum-dbt --launch-type FARGA
   --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG_TASKS],assignPublicIp=ENABLED}" \
   --overrides '{"containerOverrides":[{"name":"aurum","command":["dbt","debug"]}]}'
 
-# state machines
-aws stepfunctions start-execution --state-machine-arn "$WEEKLY_ARN"
+# state machines — all three schedules present and ENABLED
+aws scheduler list-schedules --query 'Schedules[].{Name:Name,State:State}' --output table
+
+# force one execution of each; each must end SUCCEEDED
+for m in daily_market semimonthly_edgar monthly_train; do
+  aws stepfunctions start-execution \
+    --state-machine-arn "$(terraform output -raw sfn_${m}_arn)"
+done
+
+# EDGAR truncate: run the machine TWICE and confirm the count does not double
+psql -c "select count(*) from income_stmts_quarterly;"
+
+# failure path — break it on purpose, do not assume. The execution must end FAILED
+# *and* an email must arrive.
+aws ecs run-task --cluster aurum --task-definition aurum-dbt --launch-type FARGATE \
+  --network-configuration "$(terraform output -raw run_task_network_configuration)" \
+  --overrides '{"containerOverrides":[{"name":"aurum","command":["sh","-c","exit 1"]}]}'
 
 # warehouse correctness, with a local .env pointed at the RDS endpoint
 cd src/transformation/aurum_dwh && uv run --group dbt dbt test    # 237 tests, 2 warn, 0 error
 psql -c "select count(*), count(distinct symbol), max(date) from gold.mart_features;"
 ```
 
-**Done when** a full week of daily, weekly and (on the 1st) monthly runs completes green unattended,
-`gold.mart_features` advances, a new `models/<date>-<sha>/` appears with `metrics.json` and
-`backtest/summary.json`, and month-to-date cost tracks under $20.
+**Done when** a full week of daily runs plus the 1st-of-month EDGAR and training runs completes
+green unattended, `gold.mart_features` advances with nobody typing anything, two consecutive
+EDGAR runs leave the landing row counts flat, a new `models/<date>-<sha>-full/` and
+`…-narrow/` appear with `metrics.json`, `comparison.json` and `backtest/summary.json`, a
+deliberately broken job ends `FAILED` **and** produces an email, and month-to-date cost tracks
+under `monthly_budget_usd`.
 
 ## 12. Risks
 
 | Risk | Mitigation |
 |---|---|
-| 1 GB RDS is too small for the gold build | `threads: 2`; watch `CPUCreditBalance` and `FreeableMemory`; resizing is a one-line change but costs +$12/mo and breaks the ceiling |
-| SEC 403s the Fargate address | The Part 3 gate runs before the monthly state machine is built; fall back to running EDGAR locally against RDS |
+| RDS is too small for the gold build | Resolved by moving to `db.m7g.large` (§5); watch `FreeableMemory` |
+| SEC 403s the Fargate address | Measured in Part 3: it does not (§5.1). Fall back to running EDGAR locally against RDS if that ever changes |
 | Task stuck in `PROVISIONING` | Missing `assignPublicIp=ENABLED` — there is no NAT to fall back on |
-| The backfill is far slower than it is locally | Expected, and it is one-off. Run it attended; storage autoscaling to 100 GB prevents a disk-full stall |
-| Spot interruption kills a run | Only ingest and dbt run on Spot, both retryable. Training is on-demand |
+| The backfill is far slower than it is locally | Expected, and it is one-off. Run it attended |
+| A single model exhausts the disk faster than autoscaling reacts | Measured on 2026-09-06: 18 GB → 0 in ~35 minutes. `db_allocated_storage` is provisioned at 100 GB up front rather than left to autoscale |
+| Spot interruption kills a run | Not applicable — everything runs on-demand Fargate (§3) |
 | The dbt group breaks the image build | The second sync layer drops `--no-build`; CI's install path is untouched |
 | A model version stamps as `{date}-unknown` | `AURUM_GIT_SHA = var.image_tag` on the modelling tasks |
 | The entrypoint change breaks documented commands | Compose and both docs are updated in the same change as the Dockerfile |

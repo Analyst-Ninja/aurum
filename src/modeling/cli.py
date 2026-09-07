@@ -24,6 +24,7 @@ from src.modeling.backtest.runner import run_backtest
 from src.modeling.evaluate.runner import METRICS, evaluate as run_evaluate
 from src.modeling.explain.seed_writer import compare_feature_sets
 from src.modeling.explain.shap_report import run_select_features
+from src.modeling.export.s3 import upload_run
 from src.modeling.models.lgbm import build_dataset, fit_final, fit_fold
 from src.modeling.models.registry import (
     DBT_MANIFEST,
@@ -42,7 +43,14 @@ logger = logging.getLogger(__name__)
 PENDING: dict[str, str] = {}
 
 # Every subcommand that scores or explains an existing run rather than creating one.
-VERSIONED = ("evaluate", "predict", "select-features", "backtest", "compare")
+VERSIONED = (
+    "evaluate",
+    "predict",
+    "select-features",
+    "backtest",
+    "compare",
+    "export",
+)
 
 
 def _prepare(config: ModelingConfig):
@@ -238,6 +246,12 @@ def compare(args: argparse.Namespace) -> None:
     )
 
 
+def export(args: argparse.Namespace) -> None:
+    """Publish a finished run to S3. Reads artifacts, produces nothing new."""
+    config = load_config(args.config)
+    upload_run(config.output_dir, args.version, config.export)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Modelling CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -282,6 +296,8 @@ def main() -> None:
         run_backtest(args.config, args.version)
     elif args.command == "compare":
         compare(args)
+    elif args.command == "export":
+        export(args)
     else:
         raise NotImplementedError(f"{args.command} lands in {PENDING[args.command]}")
 

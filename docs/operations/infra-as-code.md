@@ -47,8 +47,8 @@ containers, no CI pipeline yet (single operator).~~
 > | `data.sec.gov/api/xbrl/companyconcept/...` | **200**, 2,252 bytes |
 >
 > What SEC actually enforces is the honest `User-Agent` and the 10 req/s cap, both of which the
-> ingestion framework already respects. EDGAR ingestion therefore runs on ECS on a monthly
-> schedule like everything else.
+> ingestion framework already respects. EDGAR ingestion therefore runs on ECS on a schedule like
+> everything else — `aurum-semimonthly-edgar`, `cron(0 6 1,15 * ? *)`.
 >
 > The rest of this document — the Snowflake, Kafka and Postgres module design — describes a
 > target that has not been built and is not part of epic #71.
