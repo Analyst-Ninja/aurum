@@ -7,8 +7,10 @@ Grouped by the thing being documented. Two rules make the split predictable:
 - **`warehouse/` documents the contract; `warehouse/rationale/` documents the reasoning.** Reach for
   the first to *use* the warehouse, the second to *change* it.
 
-One exception to the first rule: **`modeling/` is design-stage**, describing Phase 6 as it is being
-built rather than as it runs. Each doc there opens with a status blockquote saying so.
+Two exceptions to the first rule: **`modeling/`** and **`mcp/`** are design-stage, describing work as
+it is being built rather than as it runs. Each doc there opens with a status blockquote saying so —
+so a design for a not-yet-built component lives beside its subject, and `architecture/` stays the
+one place that describes the *whole* target system.
 
 ```
 docs/
@@ -17,6 +19,7 @@ docs/
 ├── warehouse/        src/transformation/aurum_dwh, as built
 │   └── rationale/    why each model and seed is shaped the way it is
 ├── modeling/         src/modeling — design, in flight (Phase 6)
+├── mcp/              src/mcp — design, not yet built
 ├── operations/       CI/CD and infrastructure
 ├── infra/            the AWS deployment — built and running on a schedule
 └── design-specs/     dated design records, kept for history
@@ -35,6 +38,7 @@ docs/
 | change the feature set | [`modeling/feature-selection-shap.md`](modeling/feature-selection-shap.md) |
 | backtest a signal | [`modeling/backtesting.md`](modeling/backtesting.md) |
 | deploy to AWS, or change a schedule | [`infra/aws-deployment-plan.md`](infra/aws-deployment-plan.md) |
+| query the warehouse from Claude, or build the MCP server | [`mcp/mcp-server-design.md`](mcp/mcp-server-design.md) |
 
 ## architecture/
 
@@ -80,6 +84,14 @@ placeholder; these are the specification the code will be reviewed against.
 | [`training-and-retraining.md`](modeling/training-and-retraining.md) | Purged walk-forward folds, hyperparameters, the flat-file registry, retraining triggers, promotion, the container |
 | [`feature-selection-shap.md`](modeling/feature-selection-shap.md) | The SHAP loop, producer side — what writes `seeds/selected_features.csv` |
 | [`backtesting.md`](modeling/backtesting.md) | Portfolio construction, cost sweep, factor attribution, the three reality checks |
+
+## mcp/ — design, not yet built
+
+`src/mcp/` is an empty placeholder. This is the specification the code will be reviewed against.
+
+| Doc | Content |
+|---|---|
+| [`mcp-server-design.md`](mcp/mcp-server-design.md) | The read-only MCP server over the Postgres `gold` schema: catalog built from `information_schema` + the dbt schema YAMLs, the seven tools, and the three guardrail layers (the `aurum_mcp_ro` role, the `READ ONLY` transaction, the sqlglot AST gate) that make a write impossible. Supersedes `architecture/TECHNICAL_SPEC.md` §3.9 for Postgres |
 
 ## operations/
 
