@@ -1,0 +1,312 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AURUM as-built architecture",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1200,
+      720
+    ]
+  },
+  "components": [
+    {
+      "id": "scheduler",
+      "type": "cloud",
+      "label": "EventBridge Scheduler",
+      "sublabel": "3 UTC crons",
+      "pos": [
+        260,
+        110
+      ],
+      "size": [
+        170,
+        70
+      ]
+    },
+    {
+      "id": "sfn",
+      "type": "cloud",
+      "label": "Step Functions",
+      "sublabel": "3 state machines",
+      "pos": [
+        520,
+        110
+      ],
+      "size": [
+        170,
+        70
+      ]
+    },
+    {
+      "id": "sns",
+      "type": "cloud",
+      "label": "SNS alerts",
+      "sublabel": "on failure",
+      "pos": [
+        800,
+        110
+      ],
+      "size": [
+        170,
+        70
+      ]
+    },
+    {
+      "id": "yahoo",
+      "type": "external",
+      "label": "Yahoo Finance",
+      "sublabel": "daily OHLCV",
+      "pos": [
+        30,
+        280
+      ],
+      "size": [
+        160,
+        70
+      ]
+    },
+    {
+      "id": "edgar",
+      "type": "external",
+      "label": "SEC EDGAR",
+      "sublabel": "XBRL statements",
+      "pos": [
+        30,
+        410
+      ],
+      "size": [
+        160,
+        70
+      ]
+    },
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "Ingest tasks",
+      "sublabel": "ECS Fargate",
+      "pos": [
+        260,
+        345
+      ],
+      "size": [
+        170,
+        70
+      ]
+    },
+    {
+      "id": "rds",
+      "type": "database",
+      "label": "RDS Postgres",
+      "sublabel": "bronze \u00b7 silver \u00b7 gold",
+      "brand": "postgresql",
+      "pos": [
+        520,
+        345
+      ],
+      "size": [
+        170,
+        70
+      ]
+    },
+    {
+      "id": "dbt",
+      "type": "backend",
+      "label": "dbt build",
+      "sublabel": "237 tests",
+      "pos": [
+        520,
+        560
+      ],
+      "size": [
+        170,
+        70
+      ]
+    },
+    {
+      "id": "train",
+      "type": "backend",
+      "label": "Train task",
+      "sublabel": "LightGBM + SHAP",
+      "pos": [
+        800,
+        345
+      ],
+      "size": [
+        170,
+        70
+      ]
+    },
+    {
+      "id": "registry",
+      "type": "database",
+      "label": "Model registry",
+      "sublabel": "EFS models \u00b7 S3 runs",
+      "pos": [
+        1010,
+        345
+      ],
+      "size": [
+        160,
+        70
+      ]
+    },
+    {
+      "id": "gha",
+      "type": "external",
+      "label": "GitHub Actions",
+      "sublabel": "CI + terraform apply",
+      "brand": "github-actions",
+      "pos": [
+        30,
+        560
+      ],
+      "size": [
+        160,
+        70
+      ]
+    },
+    {
+      "id": "ecr",
+      "type": "cloud",
+      "label": "ECR image",
+      "sublabel": "one pinned image",
+      "brand": "docker",
+      "pos": [
+        260,
+        560
+      ],
+      "size": [
+        170,
+        70
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "AWS us-east-1",
+      "wraps": [
+        "scheduler",
+        "sfn",
+        "sns",
+        "ingest",
+        "rds",
+        "dbt",
+        "train",
+        "registry",
+        "ecr"
+      ],
+      "pad": 24
+    }
+  ],
+  "connections": [
+    {
+      "id": "yahoo-ingest",
+      "from": "yahoo",
+      "to": "ingest",
+      "label": "HTTPS"
+    },
+    {
+      "id": "edgar-ingest",
+      "from": "edgar",
+      "to": "ingest",
+      "label": "HTTPS"
+    },
+    {
+      "id": "ingest-rds",
+      "from": "ingest",
+      "to": "rds",
+      "label": "landing",
+      "variant": "emphasis"
+    },
+    {
+      "id": "rds-dbt",
+      "from": "rds",
+      "to": "dbt",
+      "label": "medallion SQL",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        605,
+        488
+      ]
+    },
+    {
+      "id": "rds-train",
+      "from": "rds",
+      "to": "train",
+      "label": "mart_features",
+      "variant": "emphasis"
+    },
+    {
+      "id": "train-registry",
+      "from": "train",
+      "to": "registry",
+      "label": "promote"
+    },
+    {
+      "id": "scheduler-sfn",
+      "from": "scheduler",
+      "to": "sfn",
+      "label": "cron"
+    },
+    {
+      "id": "sfn-ingest",
+      "from": "sfn",
+      "to": "ingest",
+      "label": "runTask.sync",
+      "fromSide": "left",
+      "toSide": "top"
+    },
+    {
+      "id": "sfn-train",
+      "from": "sfn",
+      "to": "train",
+      "label": "runTask.sync",
+      "fromSide": "right",
+      "toSide": "top"
+    },
+    {
+      "id": "sfn-sns",
+      "from": "sfn",
+      "to": "sns",
+      "label": "fail",
+      "variant": "dashed"
+    },
+    {
+      "id": "gha-ecr",
+      "from": "gha",
+      "to": "ecr",
+      "label": "push"
+    },
+    {
+      "id": "ecr-ingest",
+      "from": "ecr",
+      "to": "ingest",
+      "label": "pull",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Schedules",
+      "items": [
+        "Daily 22:30 MON-FRI: market \u2192 dbt",
+        "1st + 15th 06:00: market \u2192 EDGAR \u2192 dbt",
+        "Monthly 1st 12:00: train"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Guarantees",
+      "items": [
+        "dbt runs after every ingest",
+        "dbt failure never reaches training",
+        "Non-zero exit ends execution red"
+      ]
+    }
+  ]
+}
