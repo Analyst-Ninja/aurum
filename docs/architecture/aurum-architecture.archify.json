@@ -7,17 +7,65 @@
     "viewBox": [
       1200,
       720
+    ],
+    "views": [
+      {
+        "id": "iac",
+        "label": "Terraform-managed",
+        "focus": [
+          "eventbridge",
+          "sfn",
+          "sns",
+          "ingest",
+          "rds",
+          "dbt",
+          "train",
+          "registry",
+          "ecr",
+          "terraform",
+          "gha"
+        ],
+        "note": "Every node inside AWS us-east-1 is declared in infra/terraform and applied from GitHub Actions on merge to main."
+      },
+      {
+        "id": "data",
+        "label": "Data path",
+        "focus": [
+          "yahoo",
+          "edgar",
+          "ingest",
+          "rds",
+          "dbt",
+          "train",
+          "registry"
+        ]
+      },
+      {
+        "id": "orchestration",
+        "label": "Orchestration",
+        "focus": [
+          "eventbridge",
+          "sfn",
+          "ingest",
+          "train",
+          "sns"
+        ]
+      }
     ]
   },
   "components": [
     {
-      "id": "scheduler",
+      "id": "eventbridge",
       "type": "cloud",
       "label": "EventBridge Scheduler",
-      "sublabel": "3 UTC crons",
+      "sublabel": "3 cron schedules (UTC)",
+      "brand": {
+        "url": "https://a0.awsstatic.com/libra-css/images/site/touch-icon-iphone-114-smile.png",
+        "sha256": "00c07620175369ea6cd90de865de38cc11901ce9f90293971999d4a478441b42"
+      },
       "pos": [
-        260,
-        110
+        350,
+        80
       ],
       "size": [
         170,
@@ -28,10 +76,14 @@
       "id": "sfn",
       "type": "cloud",
       "label": "Step Functions",
-      "sublabel": "3 state machines",
+      "sublabel": "daily-market · edgar · train",
+      "brand": {
+        "url": "https://a0.awsstatic.com/libra-css/images/site/touch-icon-iphone-114-smile.png",
+        "sha256": "00c07620175369ea6cd90de865de38cc11901ce9f90293971999d4a478441b42"
+      },
       "pos": [
-        520,
-        110
+        610,
+        80
       ],
       "size": [
         170,
@@ -43,9 +95,13 @@
       "type": "cloud",
       "label": "SNS alerts",
       "sublabel": "on failure",
+      "brand": {
+        "url": "https://a0.awsstatic.com/libra-css/images/site/touch-icon-iphone-114-smile.png",
+        "sha256": "00c07620175369ea6cd90de865de38cc11901ce9f90293971999d4a478441b42"
+      },
       "pos": [
-        800,
-        110
+        870,
+        80
       ],
       "size": [
         170,
@@ -57,9 +113,13 @@
       "type": "external",
       "label": "Yahoo Finance",
       "sublabel": "daily OHLCV",
+      "brand": {
+        "url": "https://finance.yahoo.com/favicon.ico",
+        "sha256": "c6f7ee2cadae2e121342a8c4245141175bfe887776206deb17149d46cf3aa827"
+      },
       "pos": [
-        30,
-        280
+        120,
+        230
       ],
       "size": [
         160,
@@ -71,9 +131,13 @@
       "type": "external",
       "label": "SEC EDGAR",
       "sublabel": "XBRL statements",
+      "brand": {
+        "url": "https://www.sec.gov/",
+        "sha256": "769733ad46aa4e281a1df32ca49bd31ede6f62b4d925599fb49abd2d903d751c"
+      },
       "pos": [
-        30,
-        410
+        120,
+        350
       ],
       "size": [
         160,
@@ -85,9 +149,13 @@
       "type": "backend",
       "label": "Ingest tasks",
       "sublabel": "ECS Fargate",
+      "brand": {
+        "url": "https://a0.awsstatic.com/libra-css/images/site/touch-icon-iphone-114-smile.png",
+        "sha256": "00c07620175369ea6cd90de865de38cc11901ce9f90293971999d4a478441b42"
+      },
       "pos": [
-        260,
-        345
+        350,
+        290
       ],
       "size": [
         170,
@@ -98,11 +166,11 @@
       "id": "rds",
       "type": "database",
       "label": "RDS Postgres",
-      "sublabel": "bronze \u00b7 silver \u00b7 gold",
+      "sublabel": "bronze · silver · gold",
       "brand": "postgresql",
       "pos": [
-        520,
-        345
+        610,
+        290
       ],
       "size": [
         170,
@@ -114,9 +182,13 @@
       "type": "backend",
       "label": "dbt build",
       "sublabel": "237 tests",
+      "brand": {
+        "url": "https://docs.getdbt.com/",
+        "sha256": "f2a0696cd3be5555ca846004fa4cec4b5205ccd6c93b419344abef332077ea14"
+      },
       "pos": [
-        520,
-        560
+        610,
+        480
       ],
       "size": [
         170,
@@ -128,9 +200,13 @@
       "type": "backend",
       "label": "Train task",
       "sublabel": "LightGBM + SHAP",
+      "brand": {
+        "url": "https://lightgbm.readthedocs.io/",
+        "sha256": "aa29be770269242f5f9786c0e268c9a0c07d3d976210c72713e7ed02d8cdd0a4"
+      },
       "pos": [
-        800,
-        345
+        870,
+        290
       ],
       "size": [
         170,
@@ -141,13 +217,17 @@
       "id": "registry",
       "type": "database",
       "label": "Model registry",
-      "sublabel": "EFS models \u00b7 S3 runs",
+      "sublabel": "EFS models · S3 runs",
+      "brand": {
+        "url": "https://a0.awsstatic.com/libra-css/images/site/touch-icon-iphone-114-smile.png",
+        "sha256": "00c07620175369ea6cd90de865de38cc11901ce9f90293971999d4a478441b42"
+      },
       "pos": [
-        1010,
-        345
+        870,
+        480
       ],
       "size": [
-        160,
+        170,
         70
       ]
     },
@@ -155,11 +235,11 @@
       "id": "gha",
       "type": "external",
       "label": "GitHub Actions",
-      "sublabel": "CI + terraform apply",
+      "sublabel": "CI · terraform apply",
       "brand": "github-actions",
       "pos": [
-        30,
-        560
+        120,
+        480
       ],
       "size": [
         160,
@@ -171,13 +251,31 @@
       "type": "cloud",
       "label": "ECR image",
       "sublabel": "one pinned image",
-      "brand": "docker",
+      "brand": {
+        "url": "https://a0.awsstatic.com/libra-css/images/site/touch-icon-iphone-114-smile.png",
+        "sha256": "00c07620175369ea6cd90de865de38cc11901ce9f90293971999d4a478441b42"
+      },
       "pos": [
-        260,
-        560
+        350,
+        480
       ],
       "size": [
         170,
+        70
+      ]
+    },
+    {
+      "id": "terraform",
+      "type": "external",
+      "label": "Terraform · infra/terraform",
+      "sublabel": "provisions all 46 AWS resources · S3 state + lockfile",
+      "brand": "terraform",
+      "pos": [
+        326,
+        600
+      ],
+      "size": [
+        738,
         70
       ]
     }
@@ -185,9 +283,9 @@
   "boundaries": [
     {
       "kind": "region",
-      "label": "AWS us-east-1",
+      "label": "AWS us-east-1 · managed by Terraform",
       "wraps": [
-        "scheduler",
+        "eventbridge",
         "sfn",
         "sns",
         "ingest",
@@ -229,8 +327,8 @@
       "fromSide": "bottom",
       "toSide": "top",
       "labelAt": [
-        605,
-        488
+        695,
+        420
       ]
     },
     {
@@ -244,11 +342,15 @@
       "id": "train-registry",
       "from": "train",
       "to": "registry",
-      "label": "promote"
+      "label": "promote",
+      "labelAt": [
+        955,
+        420
+      ]
     },
     {
-      "id": "scheduler-sfn",
-      "from": "scheduler",
+      "id": "eb-sfn",
+      "from": "eventbridge",
       "to": "sfn",
       "label": "cron"
     },
@@ -257,7 +359,7 @@
       "from": "sfn",
       "to": "ingest",
       "label": "runTask.sync",
-      "fromSide": "left",
+      "fromSide": "bottom",
       "toSide": "top"
     },
     {
@@ -265,7 +367,7 @@
       "from": "sfn",
       "to": "train",
       "label": "runTask.sync",
-      "fromSide": "right",
+      "fromSide": "bottom",
       "toSide": "top"
     },
     {
@@ -287,16 +389,49 @@
       "to": "ingest",
       "label": "pull",
       "variant": "dashed"
+    },
+    {
+      "id": "gha-terraform",
+      "from": "gha",
+      "to": "terraform",
+      "label": "apply",
+      "fromSide": "bottom",
+      "toSide": "bottom"
+    },
+    {
+      "id": "tf-dbt",
+      "from": "terraform",
+      "to": "dbt",
+      "label": "provisions",
+      "variant": "dashed"
+    },
+    {
+      "id": "tf-ecr",
+      "from": "terraform",
+      "to": "ecr",
+      "label": "provisions",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "left"
+    },
+    {
+      "id": "tf-registry",
+      "from": "terraform",
+      "to": "registry",
+      "label": "provisions",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "right"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "Schedules",
+      "title": "3 scheduled pipelines",
       "items": [
-        "Daily 22:30 MON-FRI: market \u2192 dbt",
-        "1st + 15th 06:00: market \u2192 EDGAR \u2192 dbt",
-        "Monthly 1st 12:00: train"
+        "daily-market · 22:30 weekdays",
+        "semimonthly-edgar · 1st + 15th",
+        "monthly-train · 1st, 12:00"
       ]
     },
     {
@@ -306,6 +441,15 @@
         "dbt runs after every ingest",
         "dbt failure never reaches training",
         "Non-zero exit ends execution red"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Terraform manages (46)",
+      "items": [
+        "3 state machines · 3 schedules",
+        "ECS + 4 task defs · ECR · EFS · S3",
+        "RDS · SNS · CloudWatch · IAM · SSM"
       ]
     }
   ]
