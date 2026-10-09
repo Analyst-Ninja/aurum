@@ -42,6 +42,9 @@ modeling = [
     "scikit-learn>=1.5",
     "scipy>=1.18.1",
 ]
+mcp = [
+    "mcp[cli]>=2.3.0",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "src/ingestion/runner.py" = ["F401"]

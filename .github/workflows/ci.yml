@@ -34,7 +34,7 @@ jobs:
       # --no-build cannot install. Every modeling dependency ships manylinux wheels,
       # so --no-build holds.
       - name: Install dependencies
-        run: uv sync --locked --no-build --group modeling
+        run: uv sync --locked --no-build --group modeling --group mcp
 
       - name: Lint (ruff)
         run: uv run --no-sync ruff check src/ main.py
