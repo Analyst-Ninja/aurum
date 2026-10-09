@@ -118,3 +118,22 @@ def test_list_tables_only_returns_the_requested_schema(tmp_path, monkeypatch):
     assert catalog.list_tables("gold") == [
         {"table": "mart_a", "description": "A mart.", "columns": 2}
     ]
+
+
+def test_a_failed_live_load_is_not_cached(tmp_path, monkeypatch):
+    monkeypatch.setenv("AURUM_MCP_DBT_TARGET", str(tmp_path))  # no dbt files
+    calls = []
+
+    def flaky(schemas, table=None):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("password authentication failed")
+        return {"gold.t": {"description": "", "columns": []}}
+
+    monkeypatch.setattr(catalog, "load_live", flaky)
+
+    with pytest.raises(RuntimeError, match="password authentication failed"):
+        catalog.get_catalog()
+
+    assert catalog.list_tables("gold") == [{"table": "t", "description": "", "columns": 0}]
+    assert len(calls) == 2

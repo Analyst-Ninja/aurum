@@ -135,7 +135,7 @@ variable "mcp_password" {
 }
 
 variable "mcp_schemas" {
-  description = "Comma-separated schemas the MCP catalog tools may list. run_query is NOT bound by this — the Postgres role is the real boundary, and it grants gold and bronze (infra/sql/mcp_readonly_role.sql). Keep the two in step."
+  description = "Comma-separated schemas the MCP catalog tools may list. run_query is NOT bound by this — the Postgres role is the real boundary, and it grants gold and silver (infra/sql/mcp_readonly_role.sql). Keep the two in step."
   type        = string
-  default     = "gold,bronze"
+  default     = "gold,silver"
 }

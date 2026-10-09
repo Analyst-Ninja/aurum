@@ -97,6 +97,6 @@ First-time setup, in order:
    `aws ssm describe-instance-information`.
 4. Open the port-forward and connect.
 
-The role grants `gold` and `bronze` (matching `mcp_schemas = "gold,bronze"`); public and silver are revoked.
-Bronze is the typed, deduplicated mirror of the landing tables (bad ticks kept by design), so it serves as the
-source-fidelity check next to the gold marts. `bronze.company_meta`, `concept_map` and `selected_features` are dbt seeds.
+The role grants `gold` and `silver` (matching `mcp_schemas = "gold,silver"`); public and bronze are revoked.
+Silver holds the typed `stg_*` staging and `int_*` feature models behind the gold marts, so it serves as the
+intermediate-step check next to them.

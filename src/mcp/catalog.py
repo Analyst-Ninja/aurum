@@ -81,18 +81,22 @@ def get_catalog() -> dict[str, dict[str, Any]]:
         load_env()
         target = Path(os.getenv("AURUM_MCP_DBT_TARGET", DEFAULT_TARGET))
         schemas = allowed_schemas()
-        _catalog = load_dbt(target, schemas)
+        # Built locally and assigned last: a failed load must leave _catalog as None so the
+        # next call retries, not an empty dict that would be served as "no tables" forever.
+        tables = load_dbt(target, schemas)
         # dbt only documents the schemas it builds; anything else allowed (e.g. the raw
         # landing tables in public) is filled from one live query.
-        uncovered = [s for s in schemas if not any(k.startswith(f"{s}.") for k in _catalog)]
+        uncovered = [s for s in schemas if not any(k.startswith(f"{s}.") for k in tables)]
         if uncovered:
             logger.info("no dbt docs for %s under %s - loading live", uncovered, target)
             try:
-                _catalog.update(load_live(uncovered))
+                tables.update(load_live(uncovered))
             except Exception:
-                if not _catalog:
+                if not tables:
                     raise
                 logger.warning("live catalog load failed; serving dbt docs only", exc_info=True)
+                return tables  # partial, so not cached - the next call tries again
+        _catalog = tables
         logger.info("catalog ready: %d tables", len(_catalog))
     return _catalog
 
