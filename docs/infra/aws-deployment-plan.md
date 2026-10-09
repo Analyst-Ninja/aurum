@@ -33,8 +33,9 @@ Two constraints shape everything below:
 2. ~~**Budget ceiling: $20/month.**~~ Held until the first backfill, then abandoned for the
    database — see §5. The topology it produced was kept.
 
-**Not included:** Kafka/MSK, Snowflake, `src/inference/`, `src/mcp/`, Airflow, model serving,
-automatic promotion, multiple environments, Multi-AZ.
+**Not included:** Kafka/MSK, Snowflake, `src/inference/`, Airflow, model serving,
+automatic promotion, multiple environments, Multi-AZ. The MCP server is hosted separately on one
+small EC2 instance, reached over an SSM port-forward — see `docs/mcp/mcp-server-design.md` (Hosting on EC2).
 
 ## 2. Schedules
 

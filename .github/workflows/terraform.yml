@@ -148,6 +148,35 @@ jobs:
             -t "$registry/$ECR_REPO:$TAG" .
           docker push "$registry/$ECR_REPO:$TAG"
 
+      # The slim MCP image (`--target mcp`) rides the same tag, prefixed `mcp-` because the
+      # repo is one and IMMUTABLE. Same existence check, same idempotency. It is a separate
+      # step because the one above exits early when the main tag is already in ECR.
+      - name: Build and push the MCP image if that tag is not in ECR
+        working-directory: ${{ github.workspace }}
+        env:
+          AWS_REGION: us-east-1
+          ECR_REPO: aurum
+          TAG: mcp-${{ steps.image.outputs.tag }}
+        run: |
+          set -euo pipefail
+          account=$(aws sts get-caller-identity --query Account --output text)
+          registry="$account.dkr.ecr.$AWS_REGION.amazonaws.com"
+
+          if aws ecr describe-images \
+               --repository-name "$ECR_REPO" \
+               --image-ids imageTag="$TAG" >/dev/null 2>&1; then
+            echo "$registry/$ECR_REPO:$TAG already exists — skipping the build."
+            exit 0
+          fi
+
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$registry"
+
+          docker build --platform linux/amd64 --target mcp \
+            -f docker/aurum.Dockerfile \
+            -t "$registry/$ECR_REPO:$TAG" .
+          docker push "$registry/$ECR_REPO:$TAG"
+
       # An unset secret renders as the empty string, and TF_VAR_x="" counts as SET to
       # Terraform — it overrides the variable's default rather than falling through to it.
       # That is how a missing TF_VAR_ALERT_EMAIL destroyed the SNS email subscription and
@@ -158,6 +187,7 @@ jobs:
           TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
           TF_VAR_sec_user_agent: ${{ secrets.TF_VAR_SEC_USER_AGENT }}
           TF_VAR_alert_email: ${{ secrets.TF_VAR_ALERT_EMAIL }}
+          TF_VAR_mcp_password: ${{ secrets.TF_VAR_MCP_PASSWORD }}
         run: |
           set -uo pipefail
           missing=0
@@ -170,6 +200,7 @@ jobs:
           check TF_VAR_DB_PASSWORD    "$TF_VAR_db_password"
           check TF_VAR_SEC_USER_AGENT "$TF_VAR_sec_user_agent"
           check TF_VAR_ALERT_EMAIL    "$TF_VAR_alert_email"
+          check TF_VAR_MCP_PASSWORD   "$TF_VAR_mcp_password"
           [ "$missing" -eq 0 ] || exit 1
 
       - name: Init (S3 backend)
@@ -179,6 +210,8 @@ jobs:
         run: terraform apply -auto-approve -input=false
         env:
           TF_VAR_image_tag: ${{ steps.image.outputs.tag }}
+          TF_VAR_mcp_image_tag: mcp-${{ steps.image.outputs.tag }}
           TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
           TF_VAR_sec_user_agent: ${{ secrets.TF_VAR_SEC_USER_AGENT }}
           TF_VAR_alert_email: ${{ secrets.TF_VAR_ALERT_EMAIL }}
+          TF_VAR_mcp_password: ${{ secrets.TF_VAR_MCP_PASSWORD }}

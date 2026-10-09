@@ -97,3 +97,45 @@ variable "github_repository" {
   type        = string
   default     = "Analyst-Ninja/aurum"
 }
+
+# --- MCP host (mcp_host.tf) ----------------------------------------------------------
+
+variable "mcp_enabled" {
+  description = "Run the MCP server host. Set false to tear the instance down (about $9/month) while keeping everything else."
+  type        = bool
+  default     = true
+}
+
+variable "mcp_instance_type" {
+  description = "EC2 instance type for the MCP host. x86_64 only, because the image is built linux/amd64. The slim image idles at about 145 MB resident, so t3.micro (1 GiB) has room for a handful of users; move up to t3.small if the box starts swapping or queries queue."
+  type        = string
+  default     = "t3.micro"
+}
+
+variable "mcp_image_tag" {
+  description = "ECR tag of the slim MCP image, `mcp-<short sha>` as terraform.yml pushes it. No default on purpose, for the same reason as image_tag: the repository is IMMUTABLE, so a floating tag never exists. Changing it replaces the instance."
+  type        = string
+
+  validation {
+    condition     = var.mcp_image_tag != "latest"
+    error_message = "mcp_image_tag cannot be \"latest\": aws_ecr_repository.aurum is IMMUTABLE, so that tag is never pushed. Use mcp-<short sha>."
+  }
+}
+
+variable "mcp_username" {
+  description = "Postgres role the MCP server connects as. Created by hand with infra/sql/mcp_readonly_role.sql; read-only, SELECT on gold only."
+  type        = string
+  default     = "aurum_mcp_ro"
+}
+
+variable "mcp_password" {
+  description = "Password of the read-only MCP role. Must equal the one given to infra/sql/mcp_readonly_role.sql (`-v pw=...`). Written to SSM as a SecureString and never committed — set it in terraform.tfvars, which is gitignored."
+  type        = string
+  sensitive   = true
+}
+
+variable "mcp_schemas" {
+  description = "Comma-separated schemas the MCP catalog tools may list. run_query is NOT bound by this — the Postgres role is the real boundary, and it grants gold and bronze (infra/sql/mcp_readonly_role.sql). Keep the two in step."
+  type        = string
+  default     = "gold,bronze"
+}

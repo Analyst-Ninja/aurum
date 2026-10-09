@@ -1,0 +1,58 @@
+#!/bin/bash
+# cloud-init user data for the MCP host. Rendered by templatefile() in mcp_host.tf —
+# bash variables are written without braces on purpose, because Terraform reads "$" + "{" as
+# an interpolation.
+set -euo pipefail
+
+dnf install -y docker
+systemctl enable --now docker
+
+# The unit pulls the pinned image, reads the read-only credentials from SSM at start (so a
+# rotated password needs only a restart, never a rebuild), and runs on the host network so
+# the server's loopback bind is the instance's loopback — reachable by SSM port-forward and
+# by nothing else. The security group has no ingress rules at all.
+cat > /usr/local/bin/aurum-mcp-start.sh <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+
+region="${region}"
+registry="${registry}"
+image="${image}"
+
+aws ecr get-login-password --region "$region" \
+  | docker login --username AWS --password-stdin "$registry"
+
+# Exported, then passed by name with `-e VAR`, so the password never appears in argv.
+AURUM_MCP_USERNAME=$(aws ssm get-parameter --region "$region" \
+  --name "/${project}/mcp_username" --query Parameter.Value --output text)
+AURUM_MCP_PASSWORD=$(aws ssm get-parameter --region "$region" --with-decryption \
+  --name "/${project}/mcp_password" --query Parameter.Value --output text)
+export AURUM_MCP_USERNAME AURUM_MCP_PASSWORD
+
+docker rm -f aurum-mcp >/dev/null 2>&1 || true
+exec docker run --rm --name aurum-mcp --network host \
+  -e HOST="${db_host}" -e PORT=5432 \
+  -e AURUM_MCP_USERNAME -e AURUM_MCP_PASSWORD \
+  -e AURUM_MCP_SCHEMAS="${schemas}" \
+  "$image"
+SCRIPT
+chmod +x /usr/local/bin/aurum-mcp-start.sh
+
+cat > /etc/systemd/system/aurum-mcp.service <<'UNIT'
+[Unit]
+Description=AURUM MCP server
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+ExecStart=/usr/local/bin/aurum-mcp-start.sh
+ExecStop=/usr/bin/docker stop aurum-mcp
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now aurum-mcp.service

@@ -58,12 +58,15 @@ resource "aws_security_group" "data" {
   description = "RDS and EFS: reachable only from the ECS tasks security group"
   vpc_id      = data.aws_vpc.default.id
 
+  # The MCP host (mcp_host.tf) joins the ECS tasks here. It is a list element rather than a
+  # standalone aws_vpc_security_group_ingress_rule: mixing inline and standalone rules on one
+  # group makes Terraform fight itself, removing whichever it does not manage.
   ingress {
-    description     = "Postgres from ECS tasks"
+    description     = "Postgres from ECS tasks and the MCP host"
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
-    security_groups = [aws_security_group.tasks.id]
+    security_groups = concat([aws_security_group.tasks.id], aws_security_group.mcp[*].id)
   }
 
   ingress {
@@ -108,20 +111,39 @@ resource "aws_ecr_repository" "aurum" {
 
 # The image carries the ~400 MB ML stack, so keeping 20 tags would cost more than the
 # rest of the non-database footprint combined. Three is enough to roll back.
+#
+# The slim MCP image is tagged `mcp-<sha>` into the same repository. It gets its own rule so
+# the two lineages do not eat each other's quota: with one shared count, every release (one
+# ML image plus one MCP image) would halve the rollback depth of the ECS image. ECR applies
+# the first matching rule and an image is never re-evaluated by a lower one, which is why the
+# catch-all `any` rule is last.
 resource "aws_ecr_lifecycle_policy" "keep_last_three" {
   repository = aws_ecr_repository.aurum.name
 
   policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep the last 3 images"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 3
-      }
-      action = { type = "expire" }
-    }]
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Keep the last 3 MCP images"
+        selection = {
+          tagStatus     = "tagged"
+          tagPrefixList = ["mcp-"]
+          countType     = "imageCountMoreThan"
+          countNumber   = 3
+        }
+        action = { type = "expire" }
+      },
+      {
+        rulePriority = 2
+        description  = "Keep the last 3 images"
+        selection = {
+          tagStatus   = "any"
+          countType   = "imageCountMoreThan"
+          countNumber = 3
+        }
+        action = { type = "expire" }
+      },
+    ]
   })
 }
 

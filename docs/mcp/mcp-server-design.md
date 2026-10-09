@@ -54,6 +54,12 @@ to stderr only. stdout is the JSON-RPC stream, so nothing else may print to it.
 (`aurum`), `AURUM_MCP_SCHEMAS` (`gold`), `AURUM_MCP_MAX_ROWS` (`1000`), `AURUM_MCP_TIMEOUT_MS` (`30000`),
 `AURUM_MCP_DBT_TARGET` (the dbt `target/` dir).
 
+Transport: `AURUM_MCP_TRANSPORT` (`stdio` default, or `streamable-http`), `AURUM_MCP_LISTEN_HOST` (`127.0.0.1`),
+`AURUM_MCP_LISTEN_PORT` (`8000`). `HOST`/`PORT` are the Postgres endpoint, hence the separate names. The HTTP
+transport has **no authentication**, so `listen_config()` refuses a non-loopback host unless
+`AURUM_MCP_ALLOW_PUBLIC_BIND=1`. In HTTP mode `main()` warms the catalog before serving; a database that is down
+at boot logs a warning instead of stopping the server.
+
 ## Run
 
 ```bash
@@ -62,5 +68,35 @@ uv run --group mcp mcp dev src/mcp/server.py        # inspector
 uv run --group mcp pytest tests/mcp -v
 ```
 
-`.mcp.json` registers it as `aurum` for Claude Code. Not built: HTTP transport, ECS/Terraform, convenience tools
-(`compare_peers` etc.).
+`.mcp.json` registers it as `aurum` for Claude Code. Not built: convenience tools (`compare_peers` etc.).
+
+## Hosting on EC2
+
+One `t3.micro` runs the slim image (`docker build --target mcp -f docker/aurum.Dockerfile .`, tagged
+`mcp-<sha>` in the same immutable ECR repo by `terraform.yml`). Terraform is `infra/terraform/mcp_host.tf`; set
+`mcp_enabled = false` to tear it down.
+
+- **Private by construction.** The server binds the instance's loopback, the security group has no ingress rules,
+  and the only way in is an SSM Session Manager port-forward (IAM-gated; no key pair, domain or load balancer):
+  `terraform output mcp_port_forward_command`, then point `.mcp.json` at
+  `{"aurum": {"type": "http", "url": "http://127.0.0.1:8000/mcp"}}`. Needs the AWS CLI and the Session Manager
+  plugin locally. claude.ai connectors cannot use this; that would need a public hostname, TLS and a token verifier.
+- **Database access.** The host's security group is added to the 5432 rule on `aws_security_group.data`. It connects
+  as the read-only role, from SSM parameters `/aurum/mcp_username` and `/aurum/mcp_password` read at service start,
+  so rotating the password is a parameter change plus `systemctl restart aurum-mcp` (via a session).
+- **Catalog.** No dbt artifacts on the host: the catalog is one live `information_schema` query, held in memory
+  (no disk cache). Names and types only, no descriptions. `refresh_catalog` reloads it after a `dbt build`.
+- **Rollout.** A new `mcp-<sha>` tag changes `user_data`, which replaces the instance (a couple of minutes of
+  downtime). The ECR lifecycle policy keeps the last three `mcp-` images separately from the ECS images.
+
+First-time setup, in order:
+
+1. As the warehouse owner: `psql -h <rds> -d aurum -v pw='<password>' -v owner=aurum -f infra/sql/mcp_readonly_role.sql`.
+2. Set `mcp_password` (the same value) in `terraform.tfvars` and the repository secret `TF_VAR_MCP_PASSWORD`.
+3. Merge to `main`; `apply` builds both images and creates the host. Check it registered:
+   `aws ssm describe-instance-information`.
+4. Open the port-forward and connect.
+
+The role grants `gold` and `bronze` (matching `mcp_schemas = "gold,bronze"`); public and silver are revoked.
+Bronze is the typed, deduplicated mirror of the landing tables (bad ticks kept by design), so it serves as the
+source-fidelity check next to the gold marts. `bronze.company_meta`, `concept_map` and `selected_features` are dbt seeds.

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AURUM Module Map</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&family=Noto+Serif:ital@0;1&family=Noto+Sans+KR:wght@400;500;600&family=Noto+Serif+KR:wght@400&family=Noto+Sans+TC:wght@400;500;600&family=Noto+Serif+TC:wght@400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;   /* white-smoke */
+      --color-ink:     #2d3142;   /* jet-black */
+      --color-muted:   #4f5d75;   /* blue-slate */
+      --color-accent:  #eb6c36;   /* atomic-tangerine */
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', 'Noto Serif', 'Noto Serif KR', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+
+    .frame { max-width: 1200px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+
+    svg { width: 100%; min-width: 992px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · AURUM as built</p>
+    <h1>How the AURUM modules connect</h1>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 992 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="aurum-module-map-title aurum-module-map-desc">
+        <title id="aurum-module-map-title">AURUM module map</title>
+        <desc id="aurum-module-map-desc">Architecture of the running AURUM system: market and filing data flow through ingestion into Postgres, dbt builds the gold feature mart, modeling trains from it into a model registry, while Step Functions schedules the runs and GitHub Actions deploys the image.</desc>
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+        <!-- ZONES -->
+        <rect x="24" y="68" width="944" height="120" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+        <rect x="40" y="72" width="72" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="76" y="81" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">DATA PLANE</text>
+
+        <rect x="408" y="252" width="176" height="280" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+        <rect x="424" y="256" width="72" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="460" y="265" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">OPERATIONS</text>
+
+        <rect x="792" y="252" width="176" height="280" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+        <rect x="808" y="256" width="60" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="838" y="265" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">MODELING</text>
+
+        <!-- ARROWS (before nodes) -->
+        <!-- Sources -> Ingestion -->
+        <line x1="184" y1="136" x2="232" y2="136" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+        <rect x="190" y="116" width="36" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="208" y="125" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">API</text>
+
+        <!-- Ingestion -> Landing -->
+        <line x1="376" y1="136" x2="424" y2="136" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="382" y="116" width="36" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="400" y="125" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">WRITE</text>
+
+        <!-- Landing -> dbt -->
+        <line x1="568" y1="136" x2="616" y2="136" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="574" y="116" width="36" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="592" y="125" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">READ</text>
+
+        <!-- dbt -> Gold -->
+        <line x1="760" y1="136" x2="808" y2="136" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="766" y="116" width="36" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="784" y="125" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">BUILD</text>
+
+        <!-- Gold -> Modeling (headline path) -->
+        <line x1="880" y1="172" x2="880" y2="284" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <rect x="888" y="216" width="56" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="916" y="225" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">FEATURES</text>
+
+        <!-- Modeling -> Registry -->
+        <line x1="880" y1="356" x2="880" y2="444" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="888" y="394" width="32" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="904" y="403" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">SAVE</text>
+
+        <!-- CI -> Orchestrator -->
+        <line x1="496" y1="444" x2="496" y2="356" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="504" y="394" width="44" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="526" y="403" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">DEPLOY</text>
+
+        <!-- Orchestrator -> Ingestion (dashed) -->
+        <path d="M424,320 H312 Q304,320 304,312 V172" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        <rect x="342" y="300" width="36" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="360" y="309" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">RUN</text>
+
+        <!-- Orchestrator -> dbt (dashed) -->
+        <path d="M568,308 H680 Q688,308 688,300 V172" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        <rect x="606" y="288" width="36" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="624" y="297" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">RUN</text>
+
+        <!-- Orchestrator -> Modeling (dashed) -->
+        <line x1="568" y1="332" x2="808" y2="332" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        <rect x="722" y="312" width="36" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="740" y="321" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">TRAIN</text>
+
+        <!-- NODES -->
+        <!-- 1 Sources (external) -->
+        <rect x="40" y="100" width="144" height="72" rx="6" fill="#f5f5f5"/>
+        <rect x="40" y="100" width="144" height="72" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+        <rect x="48" y="106" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+        <text x="62" y="115" fill="rgba(45,49,66,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EXT</text>
+        <text x="112" y="140" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Yahoo · EDGAR</text>
+        <text x="112" y="156" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">OHLCV · statements</text>
+
+        <!-- 2 Ingestion -->
+        <rect x="232" y="100" width="144" height="72" rx="6" fill="#f5f5f5"/>
+        <rect x="232" y="100" width="144" height="72" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="240" y="106" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+        <text x="254" y="115" fill="rgba(45,49,66,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PY</text>
+        <text x="304" y="140" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Ingestion</text>
+        <text x="304" y="156" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">src/ingestion · YAML</text>
+
+        <!-- 3 Postgres landing (store) -->
+        <rect x="424" y="100" width="144" height="72" rx="6" fill="#f5f5f5"/>
+        <rect x="424" y="100" width="144" height="72" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+        <rect x="432" y="106" width="28" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.40)" stroke-width="0.8"/>
+        <text x="446" y="115" fill="rgba(79,93,117,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">DB</text>
+        <text x="496" y="140" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Postgres landing</text>
+        <text x="496" y="156" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">raw tables · RDS</text>
+
+        <!-- 4 dbt -->
+        <rect x="616" y="100" width="144" height="72" rx="6" fill="#f5f5f5"/>
+        <rect x="616" y="100" width="144" height="72" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="624" y="106" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+        <text x="638" y="115" fill="rgba(45,49,66,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">DBT</text>
+        <text x="688" y="140" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">dbt aurum_dwh</text>
+        <text x="688" y="156" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">bronze→silver→gold</text>
+
+        <!-- 5 Gold mart (focal) -->
+        <rect x="808" y="100" width="144" height="72" rx="6" fill="#f5f5f5"/>
+        <rect x="808" y="100" width="144" height="72" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+        <rect x="816" y="106" width="28" height="12" rx="2" fill="transparent" stroke="rgba(235,108,54,0.40)" stroke-width="0.8"/>
+        <text x="830" y="115" fill="rgba(235,108,54,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">DB</text>
+        <text x="880" y="140" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">mart_features</text>
+        <text x="880" y="156" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">gold · ~2.9M rows</text>
+
+        <!-- 6 Step Functions -->
+        <rect x="424" y="284" width="144" height="72" rx="6" fill="#f5f5f5"/>
+        <rect x="424" y="284" width="144" height="72" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="432" y="290" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+        <text x="446" y="299" fill="rgba(45,49,66,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">AWS</text>
+        <text x="496" y="324" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Step Functions</text>
+        <text x="496" y="340" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">ECS Fargate · crons</text>
+
+        <!-- 7 CI -->
+        <rect x="424" y="444" width="144" height="72" rx="6" fill="#f5f5f5"/>
+        <rect x="424" y="444" width="144" height="72" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="432" y="450" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+        <text x="446" y="459" fill="rgba(45,49,66,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CI</text>
+        <text x="496" y="484" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">GitHub Actions</text>
+        <text x="496" y="500" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Terraform → ECR image</text>
+
+        <!-- 8 Modeling -->
+        <rect x="808" y="284" width="144" height="72" rx="6" fill="#f5f5f5"/>
+        <rect x="808" y="284" width="144" height="72" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="816" y="290" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+        <text x="830" y="299" fill="rgba(45,49,66,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PY</text>
+        <text x="880" y="324" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Modeling</text>
+        <text x="880" y="340" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">LightGBM · SHAP</text>
+
+        <!-- 9 Registry (store) -->
+        <rect x="808" y="444" width="144" height="72" rx="6" fill="#f5f5f5"/>
+        <rect x="808" y="444" width="144" height="72" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+        <rect x="816" y="450" width="28" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.40)" stroke-width="0.8"/>
+        <text x="830" y="459" fill="rgba(79,93,117,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FS</text>
+        <text x="880" y="484" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Model registry</text>
+        <text x="880" y="500" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">models/ flat files</text>
+
+        <!-- ANNOTATION -->
+        <text x="40" y="316" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', 'Noto Serif', serif">Everything here runs today.</text>
+        <text x="40" y="336" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', 'Noto Serif', serif">Kafka, Snowflake, Airflow,</text>
+        <text x="40" y="356" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', 'Noto Serif', serif">inference and MCP are still</text>
+        <text x="40" y="376" fill="#4f5d75" font-size="14" font-style="italic" font-family="'Instrument Serif', 'Noto Serif', serif">design only (TECHNICAL_SPEC).</text>
+
+        <!-- LEGEND -->
+        <line x1="30" y1="552" x2="962" y2="552" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+        <text x="30" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+        <rect x="120" y="568" width="12" height="8" rx="2" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+        <text x="138" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">FOCAL</text>
+
+        <rect x="210" y="568" width="12" height="8" rx="2" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+        <text x="228" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">STORE</text>
+
+        <rect x="300" y="568" width="12" height="8" rx="2" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <text x="318" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">SERVICE</text>
+
+        <rect x="400" y="568" width="12" height="8" rx="2" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+        <text x="418" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">EXTERNAL</text>
+
+        <line x1="504" y1="572" x2="528" y2="572" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3"/>
+        <text x="536" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">ORCHESTRATES</text>
+
+        <line x1="640" y1="572" x2="664" y2="572" stroke="#2e5aa8" stroke-width="1.2"/>
+        <text x="672" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">EXTERNAL CALL</text>
+
+        <line x1="780" y1="572" x2="804" y2="572" stroke="#eb6c36" stroke-width="1.2"/>
+        <text x="812" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">HEADLINE PATH</text>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>

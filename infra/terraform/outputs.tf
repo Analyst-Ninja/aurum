@@ -63,3 +63,15 @@ output "github_actions_role_arn" {
   description = "Role the Terraform apply job assumes via OIDC. Must match role-to-assume in .github/workflows/terraform.yml."
   value       = aws_iam_role.github_actions.arn
 }
+output "mcp_instance_id" {
+  description = "EC2 instance running the MCP server; null when mcp_enabled is false."
+  value       = one(aws_instance.mcp[*].id)
+}
+
+output "mcp_port_forward_command" {
+  description = "Opens localhost:8000 on this machine to the MCP server. Needs the Session Manager plugin; point .mcp.json at http://127.0.0.1:8000/mcp."
+  value = one([
+    for i in aws_instance.mcp[*] :
+    "aws ssm start-session --target ${i.id} --document-name AWS-StartPortForwardingSession --parameters portNumber=8000,localPortNumber=8000"
+  ])
+}

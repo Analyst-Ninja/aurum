@@ -12,7 +12,51 @@
 # The first argument selects the workload (`ingest` | `dbt` | `model`) — see
 # docker/entrypoint.sh. Docs: docs/operations/training-container.md,
 # docs/infra/aws-deployment-plan.md.
+#
+# A second, slim target — `--target mcp` — holds only the MCP server (no LightGBM, SHAP or
+# dbt) for the small EC2 host. It is declared first and the three-workload image stays the
+# LAST stage, so a plain `docker build` (CI, compose, ECS) is unchanged and BuildKit never
+# builds the mcp stage for it.
 
+# --- mcp: the read-only SQL server, HTTP transport on loopback ---------------------------
+FROM python:3.12-slim AS mcp
+
+COPY --from=ghcr.io/astral-sh/uv:0.10.10 /uv /uvx /bin/
+
+# The server speaks streamable-http here and has no auth of its own, so it binds loopback
+# (src/mcp/server.py refuses anything else); reach it through an SSM port-forward. Database
+# settings (HOST, PORT, AURUM_MCP_USERNAME, AURUM_MCP_PASSWORD, AURUM_MCP_SCHEMAS) arrive as
+# environment variables — .env is excluded from the image.
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PATH="/app/.venv/bin:$PATH" \
+    AURUM_MCP_TRANSPORT=streamable-http \
+    AURUM_MCP_LISTEN_HOST=127.0.0.1 \
+    AURUM_MCP_LISTEN_PORT=8000
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+
+# --no-default-groups drops dev; [project].dependencies still install (pandas, edgartools,
+# yfinance — non-ML), because the ingestion runtime lives there rather than in a group.
+RUN uv sync --locked --no-build --no-default-groups --group mcp --no-install-project
+
+# Only what src.mcp imports: the package itself and src.utils.
+COPY src/__init__.py ./src/__init__.py
+COPY src/mcp/ ./src/mcp/
+COPY src/utils/ ./src/utils/
+
+RUN useradd --create-home --uid 1000 aurum && chown -R aurum:aurum /app
+USER aurum
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD python -c "import os, socket; socket.create_connection(('127.0.0.1', int(os.environ['AURUM_MCP_LISTEN_PORT'])), 3)"
+
+ENTRYPOINT ["python", "-m", "src.mcp.server"]
+
+# --- default: ingestion, dbt and modelling -----------------------------------------------
 FROM python:3.12-slim
 
 # uv comes from its own published image rather than a curl | sh, and is pinned.

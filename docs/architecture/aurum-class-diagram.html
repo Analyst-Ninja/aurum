@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AURUM ingestion · class diagram</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #eb6c36;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 1rem;
+    }
+
+    .frame { max-width: 1280px; width: 100%; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+
+    .scroll { overflow-x: auto; }
+    svg { width: 100%; min-width: 1240px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">UML class · src/ingestion</p>
+    <h1>AURUM ingestion framework · class diagram</h1>
+
+    <div class="scroll">
+    <svg viewBox="0 0 1240 664" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="uml-class-title uml-class-desc">
+      <title id="uml-class-title">AURUM ingestion · UML class diagram</title>
+      <desc id="uml-class-desc">BaseFeed owns two BaseDatasource instances; Ohlcv1d and the EDGAR statement feeds extend BaseFeed, while the Yahoo OHLCV source, the EDGAR financials source and the Postgres Database sink extend BaseDatasource.</desc>
+      <defs>
+        <marker id="uml-triangle" markerWidth="16" markerHeight="12" refX="15" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+          <polygon points="0 0, 16 6, 0 12" fill="#f5f5f5" stroke="#2d3142" stroke-width="1"/>
+        </marker>
+        <marker id="uml-diamond-filled" markerWidth="18" markerHeight="10" refX="0" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+          <polygon points="0 5, 9 0, 18 5, 9 10" fill="#2d3142"/>
+        </marker>
+        <marker id="uml-diamond-hollow" markerWidth="18" markerHeight="10" refX="0" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+          <polygon points="0 5, 9 0, 18 5, 9 10" fill="#f5f5f5" stroke="#2d3142" stroke-width="1"/>
+        </marker>
+        <marker id="uml-open" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M0,0 L9,4 L0,8" fill="none" stroke="#4f5d75" stroke-width="1"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- Relationships (drawn before boxes) -->
+      <!-- Feeds extend BaseFeed -->
+      <line x1="140" y1="340" x2="140" y2="224" stroke="#eb6c36" stroke-width="1" marker-end="url(#uml-triangle)"/>
+      <line x1="360" y1="340" x2="360" y2="224" stroke="#eb6c36" stroke-width="1" marker-end="url(#uml-triangle)"/>
+      <!-- Datasources extend BaseDatasource -->
+      <line x1="610" y1="340" x2="610" y2="204" stroke="#2d3142" stroke-width="1" marker-end="url(#uml-triangle)"/>
+      <line x1="850" y1="340" x2="850" y2="204" stroke="#2d3142" stroke-width="1" marker-end="url(#uml-triangle)"/>
+      <line x1="1090" y1="340" x2="1090" y2="204" stroke="#2d3142" stroke-width="1" marker-end="url(#uml-triangle)"/>
+      <!-- BaseFeed composes input_ds + output_ds -->
+      <line x1="440" y1="120" x2="600" y2="120" stroke="#4f5d75" stroke-width="1" marker-start="url(#uml-diamond-filled)"/>
+
+      <!-- Composition label + multiplicities -->
+      <rect x="462" y="104" width="12" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="468" y="113" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">1</text>
+      <rect x="576" y="104" width="12" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="582" y="113" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" font-weight="600">2</text>
+      <rect x="472" y="128" width="96" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="520" y="137" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">INPUT · OUTPUT</text>
+
+      <!-- Class: BaseFeed (abstract, focal) -->
+      <rect x="60" y="40" width="380" height="184" rx="6" fill="rgba(235,108,54,0.04)" stroke="#eb6c36" stroke-width="1"/>
+      <rect x="60" y="40" width="380" height="40" rx="6" fill="rgba(235,108,54,0.10)"/>
+      <rect x="60" y="72" width="380" height="8" fill="rgba(235,108,54,0.10)"/>
+      <line x1="60" y1="80" x2="440" y2="80" stroke="rgba(235,108,54,0.40)" stroke-width="1"/>
+      <line x1="60" y1="152" x2="440" y2="152" stroke="rgba(235,108,54,0.40)" stroke-width="1"/>
+      <text x="250" y="56" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">«abstract»</text>
+      <text x="250" y="72" fill="#2d3142" font-size="12" font-weight="600" font-style="italic" font-family="'Geist', sans-serif" text-anchor="middle">BaseFeed</text>
+      <text x="76" y="100" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ config: Dict</text>
+      <text x="76" y="120" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ input_ds: BaseDatasource</text>
+      <text x="76" y="140" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ output_ds: BaseDatasource</text>
+      <text x="76" y="172" fill="#2d3142" font-size="9" font-style="italic" font-family="'Geist Mono', monospace">+ process(data): DataFrame</text>
+      <text x="76" y="192" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ run(run_date, full_load): dict</text>
+      <text x="76" y="212" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace"># _add_write_metadata(df): DataFrame</text>
+
+      <!-- Class: BaseDatasource (abstract) -->
+      <rect x="600" y="40" width="520" height="164" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <line x1="600" y1="80" x2="1120" y2="80" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <line x1="600" y1="132" x2="1120" y2="132" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="860" y="56" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">«abstract»</text>
+      <text x="860" y="72" fill="#2d3142" font-size="12" font-weight="600" font-style="italic" font-family="'Geist', sans-serif" text-anchor="middle">BaseDatasource</text>
+      <text x="616" y="100" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ config: Dict[str, Any]</text>
+      <text x="616" y="120" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ logger: Logger</text>
+      <text x="616" y="152" fill="#2d3142" font-size="9" font-style="italic" font-family="'Geist Mono', monospace">+ read_data(run_date, watermarks): DataFrame</text>
+      <text x="616" y="172" fill="#2d3142" font-size="9" font-style="italic" font-family="'Geist Mono', monospace">+ write_data(run_date, data): None</text>
+      <text x="616" y="192" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ read_data_chunks(run_date, watermarks): Iterator</text>
+
+      <!-- Class: Ohlcv1d -->
+      <rect x="40" y="340" width="200" height="72" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <line x1="40" y1="380" x2="240" y2="380" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="140" y="364" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Ohlcv1d</text>
+      <text x="56" y="400" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ process(data): DataFrame</text>
+      <text x="40" y="428" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">+ Ohlcv1min, same shape</text>
+
+      <!-- Class: _FinancialStatementsFeed -->
+      <rect x="260" y="340" width="200" height="104" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <line x1="260" y1="380" x2="460" y2="380" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <line x1="260" y1="412" x2="460" y2="412" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="360" y="364" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">_FinancialStatementsFeed</text>
+      <text x="276" y="400" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ statement_label: str</text>
+      <text x="276" y="432" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ process(data): DataFrame</text>
+      <text x="260" y="460" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">× 6 yearly/quarterly feeds</text>
+
+      <!-- Class: OHLCVDataSource -->
+      <rect x="500" y="340" width="220" height="144" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <line x1="500" y1="380" x2="720" y2="380" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <line x1="500" y1="432" x2="720" y2="432" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="610" y="364" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">OHLCVDataSource</text>
+      <text x="516" y="400" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ timeout: int</text>
+      <text x="516" y="420" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ user_agent: str</text>
+      <text x="516" y="452" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ read_data_chunks(): Iterator</text>
+      <text x="516" y="472" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">- _normalize(raw): DataFrame</text>
+
+      <!-- Class: FinancialStmtsDatasource -->
+      <rect x="740" y="340" width="220" height="144" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <line x1="740" y1="380" x2="960" y2="380" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <line x1="740" y1="432" x2="960" y2="432" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="850" y="364" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">FinancialStmtsDatasource</text>
+      <text x="756" y="400" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ period: str</text>
+      <text x="756" y="420" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ stmt_type: str</text>
+      <text x="756" y="452" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ read_data(): DataFrame</text>
+      <text x="756" y="472" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">- _melt_statement(): DataFrame</text>
+
+      <!-- Class: Database -->
+      <rect x="980" y="340" width="220" height="144" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <line x1="980" y1="380" x2="1200" y2="380" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <line x1="980" y1="412" x2="1200" y2="412" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="1090" y="364" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Database</text>
+      <text x="996" y="400" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">- conn</text>
+      <text x="996" y="432" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ write_data(run_date, df): None</text>
+      <text x="996" y="452" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ get_watermarks(): dict</text>
+      <text x="996" y="472" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">+ connect(): None</text>
+
+      <!-- Callouts -->
+      <text x="40" y="528" fill="#4f5d75" font-size="15" font-style="italic" font-family="'Instrument Serif', serif">Registry + factory wire it up: @register_feed / @register_datasource fill two dicts at import; factory.create_* builds each class from the YAML type.</text>
+      <text x="40" y="552" fill="#4f5d75" font-size="15" font-style="italic" font-family="'Instrument Serif', serif">BaseFeed.run streams read_data_chunks → process → write_data once per chunk, so every process() must stay row-wise.</text>
+
+      <!-- Legend: relationship vocabulary -->
+      <line x1="40" y1="584" x2="1200" y2="584" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="40" y="604" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.18em">LEGEND · RELATIONSHIPS</text>
+
+      <line x1="40" y1="632" x2="68" y2="632" stroke="#2d3142" stroke-width="1" marker-end="url(#uml-triangle)"/>
+      <text x="76" y="636" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Inheritance · extends</text>
+
+      <line x1="240" y1="632" x2="268" y2="632" stroke="#2d3142" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#uml-triangle)"/>
+      <text x="276" y="636" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Realization</text>
+
+      <line x1="440" y1="632" x2="468" y2="632" stroke="#2d3142" stroke-width="1" marker-start="url(#uml-diamond-filled)"/>
+      <text x="494" y="636" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Composition · owns</text>
+
+      <line x1="680" y1="632" x2="708" y2="632" stroke="#2d3142" stroke-width="1" marker-start="url(#uml-diamond-hollow)"/>
+      <text x="734" y="636" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Aggregation · has</text>
+
+      <line x1="900" y1="632" x2="928" y2="632" stroke="#4f5d75" stroke-width="1" marker-end="url(#uml-open)"/>
+      <text x="936" y="636" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Association</text>
+
+      <line x1="1040" y1="632" x2="1068" y2="632" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#uml-open)"/>
+      <text x="1076" y="636" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Dependency · uses</text>
+    </svg>
+    </div>
+  </div>
+</body>
+</html>
