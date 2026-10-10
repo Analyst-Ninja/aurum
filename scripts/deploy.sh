@@ -86,14 +86,26 @@ cmd_bootstrap() {
   ensure_state_bucket
   cd "$TF_DIR/bootstrap"
   terraform init -input=false
-  # An account holds one OIDC provider per URL; adopt an existing one instead of failing.
-  if ! terraform state list 2>/dev/null | grep -q '^aws_iam_openid_connect_provider.github$'; then
+  # Adopt what already exists instead of failing with EntityAlreadyExists: an account holds
+  # one OIDC provider per URL, and the role may predate this root (it used to live in the main
+  # stack's state).
+  in_state() { terraform state list 2>/dev/null | grep -qx "$1"; }
+  if ! in_state aws_iam_openid_connect_provider.github; then
     arn=$(aws iam list-open-id-connect-providers --query \
       "OpenIDConnectProviderList[?ends_with(Arn, 'token.actions.githubusercontent.com')].Arn | [0]" \
       --output text)
     if [ -n "$arn" ] && [ "$arn" != "None" ]; then
       terraform import aws_iam_openid_connect_provider.github "$arn"
     fi
+  fi
+  if ! in_state aws_iam_role.github_actions \
+     && aws iam get-role --role-name aurum-github-actions >/dev/null 2>&1; then
+    terraform import aws_iam_role.github_actions aurum-github-actions
+  fi
+  if ! in_state aws_iam_role_policy_attachment.github_actions_admin \
+     && aws iam get-role --role-name aurum-github-actions >/dev/null 2>&1; then
+    terraform import aws_iam_role_policy_attachment.github_actions_admin \
+      aurum-github-actions/arn:aws:iam::aws:policy/AdministratorAccess
   fi
   terraform apply -auto-approve -input=false
   echo "Role: $(terraform output -raw github_actions_role_arn)"
