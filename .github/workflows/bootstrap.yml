@@ -1,0 +1,38 @@
+name: Bootstrap AWS
+
+# One-time, manual. Creates the Terraform state bucket and the GitHub OIDC role that
+# terraform.yml and terraform-destroy.yml assume. A cold account has no role to assume yet,
+# so this is the only workflow that authenticates with temporary access keys.
+#
+# Setup: create an IAM user with AdministratorAccess, add its key pair as the repository
+# secrets AWS_BOOTSTRAP_ACCESS_KEY_ID / AWS_BOOTSTRAP_SECRET_ACCESS_KEY, run this workflow,
+# then DELETE both secrets and the IAM user. Everything after this uses OIDC.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-apply
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    name: State bucket + OIDC role
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+
+      - name: Authenticate with the temporary bootstrap keys
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_BOOTSTRAP_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_BOOTSTRAP_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Bootstrap
+        run: scripts/deploy.sh bootstrap

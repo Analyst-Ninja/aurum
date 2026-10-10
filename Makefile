@@ -14,7 +14,7 @@ ECR_URI     := $(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(ECR_REPO)
 TAG         ?= $(shell git rev-parse --short HEAD)
 DOCKERFILE  := docker/aurum.Dockerfile
 
-.PHONY: push build login print-tag
+.PHONY: push build login print-tag tf-bootstrap tf-plan tf-apply tf-destroy
 
 # --platform linux/amd64 is not optional on Apple silicon: Fargate refuses an arm64 image.
 build:
@@ -33,3 +33,18 @@ push: build login
 
 print-tag:
 	@echo $(TAG)
+
+# Terraform, via the same script the GitHub workflows run. Needs AWS credentials in the
+# environment; secrets come from infra/terraform/terraform.tfvars.
+tf-bootstrap:
+	scripts/deploy.sh bootstrap
+
+tf-plan:
+	scripts/deploy.sh plan
+
+tf-apply:
+	scripts/deploy.sh apply
+
+# make tf-destroy FINAL_SNAPSHOT=aurum-final to keep an RDS snapshot.
+tf-destroy:
+	scripts/deploy.sh destroy

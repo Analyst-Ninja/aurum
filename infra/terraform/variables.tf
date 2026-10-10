@@ -92,12 +92,6 @@ variable "artifact_retention_days" {
   default     = 365
 }
 
-variable "github_repository" {
-  description = "The owner/repo the GitHub Actions OIDC trust policy is scoped to. Only workflow runs on this repository's main branch can assume aws_iam_role.github_actions."
-  type        = string
-  default     = "Analyst-Ninja/aurum"
-}
-
 # --- MCP host (mcp_host.tf) ----------------------------------------------------------
 
 variable "mcp_enabled" {
@@ -138,4 +132,16 @@ variable "mcp_schemas" {
   description = "Comma-separated schemas the MCP catalog tools may list. run_query is NOT bound by this — the Postgres role is the real boundary, and it grants gold and silver (infra/sql/mcp_readonly_role.sql). Keep the two in step."
   type        = string
   default     = "gold,silver"
+}
+
+variable "allow_destroy" {
+  description = "Teardown switch. false (default) keeps RDS deletion protection on and refuses to delete a non-empty ECR repo or artifacts bucket. terraform-destroy.yml sets it true, applies, then destroys."
+  type        = bool
+  default     = false
+}
+
+variable "final_snapshot_identifier" {
+  description = "Name of the RDS snapshot taken when the instance is destroyed. Empty (default) skips the snapshot, so destroying loses the data. Set by terraform-destroy.yml."
+  type        = string
+  default     = ""
 }

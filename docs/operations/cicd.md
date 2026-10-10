@@ -67,12 +67,22 @@ The original decision was "apply stays local", on two grounds that no longer hol
 
 | Concern | How the job handles it |
 |---|---|
-| AWS credentials | GitHub OIDC. `aws-actions/configure-aws-credentials` assumes `aurum-github-actions` (`infra/terraform/github_oidc.tf`); the trust policy is `StringEquals` on `sub = repo:Analyst-Ninja/aurum:ref:refs/heads/main`, so no other repo, branch or fork PR can assume it. No long-lived keys exist anywhere. |
+| AWS credentials | GitHub OIDC. `aws-actions/configure-aws-credentials` assumes `aurum-github-actions` (`infra/terraform/bootstrap/github_oidc.tf`); the trust policy is `StringEquals` on `sub = repo:Analyst-Ninja/aurum:ref:refs/heads/main`, so no other repo, branch or fork PR can assume it. No long-lived keys exist anywhere. |
 | State locking | `concurrency: { group: terraform-apply, cancel-in-progress: false }`. The S3 backend's native lock fails a concurrent run outright, and cancelling mid-apply strands the lock. |
 | `image_tag` | The short SHA of the last commit that touched anything the image contains (`git log -1 -- pyproject.toml uv.lock src docker main.py`), **not** of HEAD. The job then builds and pushes that tag if it is not already in ECR, so the tag always names an image that exists. See "Shipping code" below. |
 | Secrets | `TF_VAR_DB_PASSWORD`, `TF_VAR_SEC_USER_AGENT` and `TF_VAR_ALERT_EMAIL` as repository secrets, injected as env — never as `-var` on the command line. A preflight step fails the job if any is empty: an unset secret renders as `""`, and `TF_VAR_x=""` counts as *set* to Terraform, so it overrides the variable's default instead of falling through to it. The first run learned this the hard way — an empty `alert_email` destroyed the SNS email subscription and then failed to recreate it (`InvalidParameter: Endpoint`), leaving alerts silent until the values were set. |
 
-**Bootstrap.** The role has to exist before a run can assume it, so the first apply after `github_oidc.tf` landed was a local `terraform apply`. If the account already has an OIDC provider for `token.actions.githubusercontent.com`, import it — an account holds only one per URL.
+**First-time setup (no local deploy).** A cold account has nothing for GitHub to trust, so one step needs real credentials. The OIDC provider and role live in their own root, `infra/terraform/bootstrap/` (state key `aurum/bootstrap.tfstate`), so destroying the main stack can never delete the role the destroy run is using.
+
+1. Create an IAM user with `AdministratorAccess`; add its keys as repository secrets `AWS_BOOTSTRAP_ACCESS_KEY_ID` and `AWS_BOOTSTRAP_SECRET_ACCESS_KEY`. Also set `TF_VAR_DB_PASSWORD`, `TF_VAR_SEC_USER_AGENT`, `TF_VAR_ALERT_EMAIL`, `TF_VAR_MCP_PASSWORD`.
+2. Run **Bootstrap AWS** (Actions tab, `workflow_dispatch` on `main`). It runs `scripts/deploy.sh bootstrap`: creates the versioned state bucket if missing, imports an existing OIDC provider if the account has one, applies the bootstrap root.
+3. Delete the two bootstrap secrets and the IAM user. Everything from here uses OIDC.
+4. Push to `main` (or run **Terraform** manually). `scripts/deploy.sh apply` creates the ECR repo first, pushes the main and `mcp-` images, then does the full apply.
+5. One manual step stays: apply `infra/sql/mcp_readonly_role.sql` to RDS (the MCP role is not in Terraform).
+
+**Local deploy.** Same script, your own AWS credentials, secrets from the gitignored `infra/terraform/terraform.tfvars`: `make tf-bootstrap`, `make tf-plan`, `make tf-apply`.
+
+**Destroy.** **Terraform destroy** is `workflow_dispatch` only, runs in the `destroy` environment (add required reviewers there) and needs `confirm` = `destroy-aurum`. `scripts/deploy.sh destroy` sets `allow_destroy=true`, which turns off RDS deletion protection and sets `force_delete` / `force_destroy` on ECR and the artifacts bucket; it applies those to the three resources, then runs `terraform destroy`. RDS data is lost unless `final_snapshot` names a snapshot. The state bucket and the bootstrap role survive, so a later push to `main` rebuilds everything. The MCP database role dies with RDS. Locally: `make tf-destroy FINAL_SNAPSHOT=aurum-final`.
 
 **Shipping code.** The `apply` job builds and pushes the image itself, so a merge to
 `main` that changes `src/` reaches Fargate without a local step:

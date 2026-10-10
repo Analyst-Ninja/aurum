@@ -1,0 +1,67 @@
+name: Terraform destroy
+
+# Tears down the whole main stack (RDS, ECS, Step Functions, EFS, ECR, artifacts bucket,
+# MCP host). The state bucket and the OIDC role live outside it and survive, so `Terraform`
+# can rebuild everything afterwards.
+#
+# RDS data is lost unless `final_snapshot` names a snapshot to keep.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy-aurum" to confirm'
+        required: true
+        type: string
+      final_snapshot:
+        description: "RDS snapshot identifier to keep (empty = no snapshot, data is lost)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  destroy:
+    name: Destroy (main only)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Configure required reviewers on the `destroy` environment (Settings -> Environments).
+    environment: destroy
+    permissions:
+      contents: read
+      id-token: write
+    # Same group as the apply jobs: a destroy must never interleave with a deploy.
+    concurrency:
+      group: terraform-apply
+      cancel-in-progress: false
+    steps:
+      - name: Check confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "destroy-aurum" ]; then
+            echo "::error::confirm must be exactly destroy-aurum"
+            exit 1
+          fi
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: arn:aws:iam::851459781998:role/aurum-github-actions
+          aws-region: us-east-1
+
+      - name: Destroy
+        run: scripts/deploy.sh destroy
+        env:
+          FINAL_SNAPSHOT: ${{ inputs.final_snapshot }}
+          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
+          TF_VAR_sec_user_agent: ${{ secrets.TF_VAR_SEC_USER_AGENT }}
+          TF_VAR_alert_email: ${{ secrets.TF_VAR_ALERT_EMAIL }}
+          TF_VAR_mcp_password: ${{ secrets.TF_VAR_MCP_PASSWORD }}

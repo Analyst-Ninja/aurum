@@ -5,8 +5,8 @@
 # exactly one repository and one branch, so a leaked GitHub token buys nothing outside a
 # `main` workflow run.
 #
-# Chicken-and-egg: this role has to exist before any run can assume it, so the first apply
-# after adding this file must be a LOCAL one. See docs/operations/cicd.md §3.
+# Lives in its own root (own state key) so `terraform destroy` on the main stack can never
+# delete the role the destroy workflow is running as. Applied once by bootstrap.yml or `make tf-bootstrap`.
 
 # AWS ships GitHub's CA in its own trust store, so `thumbprint_list` is optional here and
 # deliberately omitted — a pinned thumbprint becomes an outage the day GitHub rotates its
