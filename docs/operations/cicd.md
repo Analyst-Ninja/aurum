@@ -75,10 +75,12 @@ The original decision was "apply stays local", on two grounds that no longer hol
 **First-time setup (no local deploy).** A cold account has nothing for GitHub to trust, so one step needs real credentials. The OIDC provider and role live in their own root, `infra/terraform/bootstrap/` (state key `aurum/bootstrap.tfstate`), so destroying the main stack can never delete the role the destroy run is using.
 
 1. Create an IAM user with `AdministratorAccess`; add its keys as repository secrets `AWS_BOOTSTRAP_ACCESS_KEY_ID` and `AWS_BOOTSTRAP_SECRET_ACCESS_KEY`. Also set `TF_VAR_DB_PASSWORD`, `TF_VAR_SEC_USER_AGENT`, `TF_VAR_ALERT_EMAIL`, `TF_VAR_MCP_PASSWORD`.
-2. Run **Bootstrap AWS** (Actions tab, `workflow_dispatch` on `main`). It runs `scripts/deploy.sh bootstrap`: creates the versioned state bucket if missing, imports an existing OIDC provider if the account has one, applies the bootstrap root.
+2. Run **Bootstrap AWS** (Actions tab, `workflow_dispatch` on `main`) with `auth_method = bootstrap-keys`. It runs `scripts/deploy.sh bootstrap`: creates the versioned state bucket if missing, imports an existing OIDC provider if the account has one, applies the bootstrap root.
 3. Delete the two bootstrap secrets and the IAM user. Everything from here uses OIDC.
 4. Push to `main` (or run **Terraform** manually). `scripts/deploy.sh apply` creates the ECR repo first, pushes the main and `mcp-` images, then does the full apply.
 5. **One manual step stays: create the MCP read-only Postgres role, once, as the RDS admin.** Terraform and CI cannot do it: the AWS provider has no Postgres-role resource, GitHub runners cannot reach RDS (the security group admits only listed CIDRs and the MCP host), and the role needs the `gold` and `silver` schemas that only exist after the first `dbt build`. Terraform only stores the password in SSM; it never creates the role.
+
+**OIDC trust repair.** If a later change edits `infra/terraform/bootstrap/github_oidc.tf`, run **Bootstrap AWS** again with the default `auth_method = oidc`. The job has no GitHub environment, so its token keeps the `ref:refs/heads/main` subject and can use the existing role to update the reviewer-gated `apply`/`destroy` subjects.
 
    Placeholders: `<ADMIN_USER>` / `<ADMIN_PASS>` = the RDS master login (`TF_VAR_DB_USER` / `TF_VAR_DB_PASSWORD`); `<OWNER_ROLE>` = the role dbt runs as and owns the tables (`aurum`); `<MCP_LOGIN_PASS>` = the new role's password, **identical** to `TF_VAR_MCP_PASSWORD` / `mcp_password` in `terraform.tfvars`; `<RDS_HOST>` = the RDS endpoint.
 

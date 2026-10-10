@@ -1,17 +1,26 @@
 name: Bootstrap AWS
 
-# One-time, manual. Creates the Terraform state bucket and the GitHub OIDC role that
-# terraform.yml and terraform-destroy.yml assume. A cold account has no role to assume yet,
-# so this is the only workflow that authenticates with temporary access keys.
+# Manual. Creates or repairs the Terraform state bucket and the GitHub OIDC role that
+# terraform.yml and terraform-destroy.yml assume.
 #
-# Setup: create an IAM user with AdministratorAccess, add its key pair as the repository
-# secrets AWS_BOOTSTRAP_ACCESS_KEY_ID / AWS_BOOTSTRAP_SECRET_ACCESS_KEY, run this workflow,
-# then DELETE both secrets and the IAM user. Everything after this uses OIDC.
+# A cold account has no role to assume yet, so the first run authenticates with temporary
+# access keys. Later repair runs can use the existing OIDC role, which avoids recreating
+# bootstrap keys just to update the role trust policy.
 on:
   workflow_dispatch:
+    inputs:
+      auth_method:
+        description: "How this bootstrap run authenticates to AWS"
+        required: true
+        default: oidc
+        type: choice
+        options:
+          - oidc
+          - bootstrap-keys
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: terraform-apply
@@ -27,7 +36,15 @@ jobs:
 
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
 
+      - name: Authenticate with the existing OIDC role
+        if: inputs.auth_method == 'oidc'
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: arn:aws:iam::851459781998:role/aurum-github-actions
+          aws-region: us-east-1
+
       - name: Authenticate with the temporary bootstrap keys
+        if: inputs.auth_method == 'bootstrap-keys'
         uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
           aws-access-key-id: ${{ secrets.AWS_BOOTSTRAP_ACCESS_KEY_ID }}
