@@ -82,7 +82,7 @@ The original decision was "apply stays local", on two grounds that no longer hol
 
 **Local deploy.** Same script, your own AWS credentials, secrets from the gitignored `infra/terraform/terraform.tfvars`: `make tf-bootstrap`, `make tf-plan`, `make tf-apply`.
 
-**Destroy.** **Terraform destroy** is `workflow_dispatch` only, runs in the `owner` environment (required reviewers configured there) and needs `confirm` = `destroy-aurum`. `scripts/deploy.sh destroy` sets `allow_destroy=true`, which turns off RDS deletion protection and sets `force_delete` / `force_destroy` on ECR and the artifacts bucket; it applies those to the three resources, then runs `terraform destroy`. RDS data is lost unless `final_snapshot` names a snapshot. The state bucket and the bootstrap role survive, so a later push to `main` rebuilds everything. The MCP database role dies with RDS. Locally: `make tf-destroy FINAL_SNAPSHOT=aurum-final`.
+**Destroy.** **Terraform destroy** is `workflow_dispatch` only, runs in the `destroy` environment (add required reviewers there) and needs `confirm` = `destroy-aurum`. `scripts/deploy.sh destroy` sets `allow_destroy=true`, which turns off RDS deletion protection and sets `force_delete` / `force_destroy` on ECR and the artifacts bucket; it applies those to the three resources, then runs `terraform destroy`. RDS data is lost unless `final_snapshot` names a snapshot. The state bucket and the bootstrap role survive, so a later push to `main` rebuilds everything. The MCP database role dies with RDS. Locally: `make tf-destroy FINAL_SNAPSHOT=aurum-final`.
 
 **Shipping code.** The `apply` job builds and pushes the image itself, so a merge to
 `main` that changes `src/` reaches Fargate without a local step:
