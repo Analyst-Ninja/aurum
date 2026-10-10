@@ -89,14 +89,50 @@ One `t3.micro` runs the slim image (`docker build --target mcp -f docker/aurum.D
 - **Rollout.** A new `mcp-<sha>` tag changes `user_data`, which replaces the instance (a couple of minutes of
   downtime). The ECR lifecycle policy keeps the last three `mcp-` images separately from the ECS images.
 
-First-time setup, in order:
+## Setup (EC2 host)
 
-1. As the warehouse owner: `psql -h <rds> -d aurum -v pw='<password>' -v owner=aurum -f infra/sql/mcp_readonly_role.sql`.
-2. Set `mcp_password` (the same value) in `terraform.tfvars` and the repository secret `TF_VAR_MCP_PASSWORD`.
-3. Merge to `main`; `apply` builds both images and creates the host. Check it registered:
-   `aws ssm describe-instance-information`.
-4. Open the port-forward and connect.
+One-time, about 10 minutes. You need the AWS CLI, the
+[Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html),
+Node (for `npx`) and working AWS credentials.
+
+1. **Create the read-only DB role** (as the warehouse owner):
+   `psql -h <rds-host> -d aurum -v pw="'<password>'" -v owner=<owner role> -f infra/sql/mcp_readonly_role.sql`
+   (`pw` carries its own single quotes; the script's `CREATE ROLE ... LOGIN` makes the role able to log in.)
+2. **Give Terraform the same password**: `mcp_password` in `infra/terraform/terraform.tfvars` and the GitHub
+   repository secret `TF_VAR_MCP_PASSWORD`.
+3. **Deploy**: merge to `main`. `terraform.yml` builds both images and creates the instance. Check it is
+   reachable: `aws ssm describe-instance-information` lists it.
+4. **Connect from Claude Code**: add this to `.mcp.json` (gitignored, so it is yours). It starts the tunnel if it
+   is not already running, then bridges stdio to the HTTP server:
+
+   ```json
+   {
+     "mcpServers": {
+       "aurum": {
+         "type": "stdio",
+         "command": "sh",
+         "args": ["-c", "pgrep -f mcp-tunnel.sh >/dev/null || (nohup ./scripts/mcp-tunnel.sh >/tmp/aurum-mcp-tunnel.log 2>&1 &); sleep 5; exec npx -y mcp-remote http://127.0.0.1:8000/mcp --allow-http"]
+       }
+     }
+   }
+   ```
+
+   Restart Claude Code, run `/mcp`, and ask for `list_tables`.
+
+`scripts/mcp-tunnel.sh` finds the instance by its `Name=aurum-mcp` tag, so it survives instance replacement, and
+reconnects when SSM drops an idle session. To run the tunnel by hand: `./scripts/mcp-tunnel.sh`
+(`AWS_REGION` defaults to `us-east-1`, `AURUM_MCP_LOCAL_PORT` to `8000`).
+
+### Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `connection refused` on `localhost:8000` | Tunnel is not running. `cat /tmp/aurum-mcp-tunnel.log`; check AWS credentials and the Session Manager plugin. |
+| Password authentication failed | `mcp_password` differs from the role's. Re-run step 1's `ALTER ROLE aurum_mcp_ro PASSWORD`, then `systemctl restart aurum-mcp` in an SSM session. |
+| Role exists but cannot log in | Created without `LOGIN`: `ALTER ROLE aurum_mcp_ro LOGIN;`. |
+| `list_tables` is empty | Schema not in `AURUM_MCP_SCHEMAS` (`mcp_schemas` in Terraform), or the role lacks `USAGE`/`SELECT` on it. Pass `schema="silver"` to query another allowed schema. |
+| `permission denied for schema bronze` | By design: bronze is revoked from the role. |
 
 The role grants `gold` and `silver` (matching `mcp_schemas = "gold,silver"`); public and bronze are revoked.
 Silver holds the typed `stg_*` staging and `int_*` feature models behind the gold marts, so it serves as the
-intermediate-step check next to them.
+intermediate-step check next to them. `list_tables` defaults to `gold`; pass `schema="silver"` for the rest.

@@ -104,6 +104,8 @@ Design phase complete (spec v2.0, 2026-07-12). Implementation is mid-Phase 0 —
 - CI: ruff lint + pytest + SonarCloud quality gate on `main`, `develop`, `epic/*`, and PRs.
 - **Runs on AWS, unattended.** RDS Postgres, one image on ECR, four ECS Fargate task definitions and three Step Functions state machines on EventBridge Scheduler crons — market ingest plus the dbt build every weeknight, EDGAR on the 1st and 15th, the full modelling loop on the 1st. Failures publish to SNS and end the execution red. All Terraform, in `infra/terraform/`. See the [AWS deployment](docs/infra/aws-deployment-plan.md).
 
+- **MCP server** (`src/mcp/`) — read-only SQL over the `gold` and `silver` schemas, hosted on a private EC2 instance and reached through an SSM tunnel. Setup below.
+
 **Designed, in flight**
 
 - **Phase 6 — modelling.** `docs/modeling/` specifies preprocessing, purged walk-forward training, SHAP feature selection, backtesting and the retraining policy: 5-day horizon, regression on `fwd_ret_5d_excess` (market-neutral excess return), LightGBM, flat-file model registry, containerized training. Tracked as epic [#50](https://github.com/Analyst-Ninja/aurum/issues/50) and built under `src/modeling/` — start at the [Modelling design](docs/modeling/modeling-design.md).
@@ -113,8 +115,18 @@ Design phase complete (spec v2.0, 2026-07-12). Implementation is mid-Phase 0 —
 - Kafka producers/consumers, the realtime websocket feed, and news ingestion — so no sentiment exists anywhere in the warehouse.
 - Airflow DAGs (`airflow/` is a placeholder) and the Terraform under `infra/`.
 - Snowflake. The dbt project targets local Postgres; the medallion moves later.
-- ML training / SHAP (`src/modeling/`), realtime inference (`src/inference/`), and the FastMCP server (`src/mcp/`) — placeholders. `gold.mart_feature_summary` and `gold.mart_stock_screener` are already built to their contracts so those pieces can land without reshaping the warehouse.
-- Python tests. `tests/` is empty and the pytest step in CI is commented out (the 237 dbt tests are separate and do run).
+- Realtime inference (`src/inference/`) — placeholder. `gold.mart_feature_summary` and `gold.mart_stock_screener` are already built to their contracts so those pieces can land without reshaping the warehouse.
+
+## Query the warehouse from Claude (MCP)
+
+Gives Claude Code four tools — `list_tables`, `describe_table`, `run_query`, `refresh_catalog` — over `gold` and `silver`. Read-only: the DB role cannot write.
+
+1. Install the AWS CLI, the [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) and Node, and log in to AWS.
+2. Deploy once: create the DB role (`infra/sql/mcp_readonly_role.sql`), set `mcp_password` in `terraform.tfvars` and the `TF_VAR_MCP_PASSWORD` repo secret, merge to `main`.
+3. Add the `aurum` entry from [`docs/mcp/mcp-server-design.md`](docs/mcp/mcp-server-design.md#setup-ec2-host) to `.mcp.json`. It starts `scripts/mcp-tunnel.sh` for you.
+4. Restart Claude Code, run `/mcp`, ask: *"list the tables in gold"*.
+
+No AWS? Run it locally against your own Postgres: `uv run --group mcp python -m src.mcp.server`.
 
 ## Data sources & cost
 
