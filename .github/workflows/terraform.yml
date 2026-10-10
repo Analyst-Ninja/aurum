@@ -71,6 +71,8 @@ jobs:
     needs: validate
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # Configure required reviewers on the `apply` environment (Settings -> Environments).
+    environment: apply
 
     permissions:
       contents: read

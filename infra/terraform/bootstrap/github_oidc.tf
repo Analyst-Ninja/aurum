@@ -41,17 +41,18 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
     # with a wildcard: `repo:<owner>/<repo>:*` would let a pull request from a fork branch
     # assume an AdministratorAccess role.
     #
-    # Two subjects, because GitHub changes the claim for a job that declares `environment:`
-    # from `ref:refs/heads/main` to `environment:<name>`. The destroy workflow uses the
-    # `destroy` environment (required reviewers), so without the second value its token is
-    # rejected with "Not authorized to perform sts:AssumeRoleWithWebIdentity". Restrict the
-    # environment to the main branch in Settings -> Environments so it cannot be used from
-    # another branch.
+    # GitHub changes the claim for jobs that declare `environment:` from
+    # `ref:refs/heads/main` to `environment:<name>`. The apply and destroy workflows use
+    # environments with required reviewers, so both environment subjects must be allowed or
+    # the approved job is rejected with "Not authorized to perform
+    # sts:AssumeRoleWithWebIdentity". Restrict both environments to the main branch in
+    # Settings -> Environments so they cannot be used from another branch.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       values = [
         "repo:${var.github_repository}:ref:refs/heads/main",
+        "repo:${var.github_repository}:environment:apply",
         "repo:${var.github_repository}:environment:destroy",
       ]
     }
