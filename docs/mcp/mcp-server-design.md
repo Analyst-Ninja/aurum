@@ -89,13 +89,71 @@ One `t3.micro` runs the slim image (`docker build --target mcp -f docker/aurum.D
 - **Rollout.** A new `mcp-<sha>` tag changes `user_data`, which replaces the instance (a couple of minutes of
   downtime). The ECR lifecycle policy keeps the last three `mcp-` images separately from the ECS images.
 
-First-time setup, in order:
+### Setup guide
 
-1. As the warehouse owner: `psql -h <rds> -d aurum -v pw='<password>' -v owner=aurum -f infra/sql/mcp_readonly_role.sql`.
-2. Set `mcp_password` (the same value) in `terraform.tfvars` and the repository secret `TF_VAR_MCP_PASSWORD`.
-3. Merge to `main`; `apply` builds both images and creates the host. Check it registered:
-   `aws ssm describe-instance-information`.
-4. Open the port-forward and connect.
+Placeholders used below. Substitute them; never commit real values.
+
+| Placeholder | Meaning |
+|---|---|
+| `<MCP_LOGIN_PASS>` | Password of the `aurum_mcp_ro` role. **One value, set in three places** (step 1, step 2 twice). |
+| `<OWNER_ROLE>` | The role that runs dbt and owns the `gold`/`silver` tables (`aurum` here). Default privileges only fire for tables *this* role creates. |
+| `<RDS_HOST>` | RDS endpoint, e.g. `aurum.<id>.us-east-1.rds.amazonaws.com`. |
+
+**1. Create the role.** Connect to database `aurum` **as `<OWNER_ROLE>`** (psql or any SQL client) and run:
+
+```sql
+CREATE ROLE aurum_mcp_ro LOGIN PASSWORD '<MCP_LOGIN_PASS>' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+
+ALTER ROLE aurum_mcp_ro SET default_transaction_read_only = on;
+ALTER ROLE aurum_mcp_ro SET statement_timeout = '30s';
+
+GRANT CONNECT ON DATABASE aurum TO aurum_mcp_ro;
+GRANT USAGE  ON SCHEMA gold, silver TO aurum_mcp_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA gold, silver TO aurum_mcp_ro;
+
+-- Load-bearing: dbt rebuilds gold marts and silver models as DROP + CREATE, which discards
+-- table-level grants. Default privileges attach SELECT to tables that do not exist yet.
+ALTER DEFAULT PRIVILEGES FOR ROLE <OWNER_ROLE> IN SCHEMA gold, silver GRANT SELECT ON TABLES TO aurum_mcp_ro;
+
+REVOKE ALL ON SCHEMA public, bronze FROM aurum_mcp_ro;
+```
+
+The same SQL is `infra/sql/mcp_readonly_role.sql`; from a shell:
+`psql -h <RDS_HOST> -d aurum -U <OWNER_ROLE> -v pw="'<MCP_LOGIN_PASS>'" -v owner=<OWNER_ROLE> -f infra/sql/mcp_readonly_role.sql`.
+Run it once. The role survives `dbt build`, but a `terraform destroy` that recreates RDS wipes it, so redo this step
+after any rebuild. The schemas need not exist yet (`GRANT USAGE ON SCHEMA` does, so run `dbt build` first on a fresh DB).
+
+**2. Give the same password to Terraform.** Set `mcp_password = "<MCP_LOGIN_PASS>"` in `terraform.tfvars` (gitignored)
+and the repository secret `TF_VAR_MCP_PASSWORD`. Terraform writes it to SSM `/aurum/mcp_password` (SecureString);
+the host reads it at service start.
+
+**3. Deploy.** Merge to `main`; `apply` builds both images and creates the host. Check it registered:
+`aws ssm describe-instance-information`.
+
+**4. Connect.** Open the port-forward (`scripts/mcp-tunnel.sh`, or `terraform output mcp_port_forward_command`) and
+start Claude Code; `.mcp.json` points at `http://127.0.0.1:8000/mcp`.
+
+**5. Verify.** Call `list_tables` for `silver` and `gold`. Expect 8 silver and 4 gold tables once dbt has built
+gold. An empty `gold` list with a working connection means gold has not been built, not a grant problem.
+
+**Rotate or repair the password.** The role and SSM must match, or every call fails with
+`password authentication failed for user "aurum_mcp_ro"`. As `<OWNER_ROLE>`:
+
+```sql
+ALTER ROLE aurum_mcp_ro PASSWORD '<MCP_LOGIN_PASS>';
+```
+
+If the SSM value is also changing: update `terraform.tfvars` and `TF_VAR_MCP_PASSWORD`, `terraform apply`, then
+`sudo systemctl restart aurum-mcp` on the host (SSM session). If only the role was wrong, the `ALTER ROLE` alone is
+enough: Postgres checks the password on each new connection and the container needs no restart.
+
+| Symptom | Cause |
+|---|---|
+| `password authentication failed for user "aurum_mcp_ro"` | Role password differs from SSM `/aurum/mcp_password`. `ALTER ROLE` as above. |
+| `role "aurum_mcp_ro" does not exist` | Role never created, or RDS was rebuilt. Redo step 1. |
+| `list_tables` returns `[]` for gold | dbt gold not built, or built by a role other than `<OWNER_ROLE>`. |
+| `permission denied for schema gold` | Step 1 grants missing; rerun them. |
+| Tunnel returns HTTP 400 | Port-forward is up but the host container is not; check `systemctl status aurum-mcp`. |
 
 The role grants `gold` and `silver` (matching `mcp_schemas = "gold,silver"`); public and bronze are revoked.
 Silver holds the typed `stg_*` staging and `int_*` feature models behind the gold marts, so it serves as the

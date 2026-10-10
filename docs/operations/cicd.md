@@ -78,7 +78,24 @@ The original decision was "apply stays local", on two grounds that no longer hol
 2. Run **Bootstrap AWS** (Actions tab, `workflow_dispatch` on `main`). It runs `scripts/deploy.sh bootstrap`: creates the versioned state bucket if missing, imports an existing OIDC provider if the account has one, applies the bootstrap root.
 3. Delete the two bootstrap secrets and the IAM user. Everything from here uses OIDC.
 4. Push to `main` (or run **Terraform** manually). `scripts/deploy.sh apply` creates the ECR repo first, pushes the main and `mcp-` images, then does the full apply.
-5. One manual step stays: apply `infra/sql/mcp_readonly_role.sql` to RDS (the MCP role is not in Terraform).
+5. **One manual step stays: create the MCP read-only Postgres role, once, as the RDS admin.** Terraform and CI cannot do it: the AWS provider has no Postgres-role resource, GitHub runners cannot reach RDS (the security group admits only listed CIDRs and the MCP host), and the role needs the `gold` and `silver` schemas that only exist after the first `dbt build`. Terraform only stores the password in SSM; it never creates the role.
+
+   Placeholders: `<ADMIN_USER>` / `<ADMIN_PASS>` = the RDS master login (`TF_VAR_DB_USER` / `TF_VAR_DB_PASSWORD`); `<OWNER_ROLE>` = the role dbt runs as and owns the tables (`aurum`); `<MCP_LOGIN_PASS>` = the new role's password, **identical** to `TF_VAR_MCP_PASSWORD` / `mcp_password` in `terraform.tfvars`; `<RDS_HOST>` = the RDS endpoint.
+
+   1. Wait for the first dbt run to build `silver` and `gold` (the daily `aurum-daily-market` machine, or start it by hand).
+   2. Connect to database `aurum` as `<ADMIN_USER>` from a host the security group allows (your laptop through the existing DB access path, or a DB client):
+
+      ```bash
+      psql "host=<RDS_HOST> port=5432 dbname=aurum user=<ADMIN_USER> password=<ADMIN_PASS> sslmode=require" \
+        -v pw="'<MCP_LOGIN_PASS>'" -v owner=<OWNER_ROLE> \
+        -f infra/sql/mcp_readonly_role.sql
+      ```
+
+      Or paste the file into any SQL client, replacing `:pw` with `'<MCP_LOGIN_PASS>'` and `:owner` with `<OWNER_ROLE>`.
+   3. Check: `select rolname, rolcanlogin from pg_roles where rolname = 'aurum_mcp_ro';` returns one row with `true`.
+   4. Open the tunnel and call `list_tables`. `password authentication failed for user "aurum_mcp_ro"` means the role password differs from SSM; fix with `ALTER ROLE aurum_mcp_ro PASSWORD '<MCP_LOGIN_PASS>';` as admin, no restart needed. Full detail: `docs/mcp/mcp-server-design.md` (Setup guide).
+
+   Redo this step after every `terraform destroy`: the role dies with RDS.
 
 **Local deploy.** Same script, your own AWS credentials, secrets from the gitignored `infra/terraform/terraform.tfvars`: `make tf-bootstrap`, `make tf-plan`, `make tf-apply`.
 
