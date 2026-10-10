@@ -26,8 +26,8 @@ jobs:
     name: Destroy (main only)
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    # Configure required reviewers on the `destroy` environment (Settings -> Environments).
-    environment: destroy
+    # Required reviewers are configured on the `owner` environment (Settings -> Environments). It must exist: GitHub auto-creates a missing one with no protection.
+    environment: owner
     permissions:
       contents: read
       id-token: write
