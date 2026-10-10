@@ -93,16 +93,17 @@ resource "aws_db_instance" "aurum" {
   multi_az                   = false
   backup_retention_period    = 7
   auto_minor_version_upgrade = true
-  deletion_protection        = true
+  deletion_protection        = !var.allow_destroy
 
   # Without this a change to instance_class waits for the next maintenance window, so
   # `terraform apply` returns "success" and nothing actually resizes. There is no
   # production traffic to protect here — resizes should happen when asked for.
   apply_immediately = true
 
-  # A personal project does not need a final snapshot ceremony on teardown, but
-  # deletion_protection above means teardown is deliberate either way.
-  skip_final_snapshot = true
+  # No final snapshot unless the destroy workflow names one: a personal project does not
+  # need the ceremony, and deletion_protection above already makes teardown deliberate.
+  skip_final_snapshot       = var.final_snapshot_identifier == ""
+  final_snapshot_identifier = var.final_snapshot_identifier == "" ? null : var.final_snapshot_identifier
 
   tags = { Name = var.project }
 }

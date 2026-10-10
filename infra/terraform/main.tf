@@ -103,6 +103,7 @@ resource "aws_security_group" "data" {
 resource "aws_ecr_repository" "aurum" {
   name                 = var.project
   image_tag_mutability = "IMMUTABLE"
+  force_delete         = var.allow_destroy
 
   image_scanning_configuration {
     scan_on_push = true
@@ -341,7 +342,8 @@ resource "aws_iam_role_policy" "execution_secrets" {
 # each run here under runs/<version>/<timestamp>/, and a presigned URL opens report.html
 # in a browser. EFS stays authoritative; this is a publish, not a migration.
 resource "aws_s3_bucket" "artifacts" {
-  bucket = "${var.project}-artifacts-${data.aws_caller_identity.current.account_id}"
+  bucket        = "${var.project}-artifacts-${data.aws_caller_identity.current.account_id}"
+  force_destroy = var.allow_destroy
 }
 
 # The reports carry no secrets, but they do carry the strategy's positions and returns.
