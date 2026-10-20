@@ -63,6 +63,17 @@ def test_a_reordered_feature_matrix_is_refused(saved_run, config, panel):
         decide.score_frame(booster, manifest, panel.tail(30), config.preprocess)
 
 
+def test_the_manifest_allow_list_wins_over_the_configs(saved_run, config, panel):
+    from src.modeling.models.registry import load_run
+
+    booster, manifest = load_run(config.output_dir, saved_run)
+    stale = config.preprocess.model_copy(update={"allow_list": ["mom_12_1_z"]})
+
+    out = decide.score_frame(booster, manifest, panel.tail(30), stale)
+
+    assert len(out) == 30 and out["score"].notna().all()
+
+
 def test_resolve_prefers_the_registry_entry_then_the_newest_local(tmp_path):
     for name in ("20260801-aaa-narrow", "20260901-bbb-narrow", "20260905-ccc-full"):
         (tmp_path / name).mkdir()
