@@ -1,10 +1,11 @@
-"""AURUM MCP server: a read-only SQL window onto the gold marts.
+"""AURUM MCP server: a read-only SQL window onto the gold marts, plus model decisions.
 
     uv run --group mcp python -m src.mcp.server                       # stdio (default)
     AURUM_MCP_TRANSPORT=streamable-http uv run --group mcp python -m src.mcp.server
 """
 
 import functools
+import inspect
 import os
 from collections.abc import Callable
 from typing import Any
@@ -26,12 +27,23 @@ def tool(fn: Callable[..., Any]) -> Callable[..., Any]:
     "SQLSTATE 42501" - and the client needs them to fix its query, so they become ToolError.
     """
 
-    @functools.wraps(fn)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        try:
-            return fn(*args, **kwargs)
-        except (ValueError, RuntimeError) as error:
-            raise ToolError(str(error)) from None
+    if inspect.iscoroutinefunction(fn):
+
+        @functools.wraps(fn)
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return await fn(*args, **kwargs)
+            except (ValueError, RuntimeError) as error:
+                raise ToolError(str(error)) from None
+
+    else:
+
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return fn(*args, **kwargs)
+            except (ValueError, RuntimeError) as error:
+                raise ToolError(str(error)) from None
 
     return mcp.tool()(wrapper)
 
@@ -58,6 +70,44 @@ def run_query(sql: str, max_rows: int = 1000) -> dict[str, Any]:
 def refresh_catalog() -> int:
     """Reload the table catalog (run after a dbt build). Returns the table count."""
     return catalog.refresh()
+
+
+async def _decisions(version: str | None, asof: str | None, **view: Any) -> dict[str, Any]:
+    """Score one day with the newest narrowed run. Heavy imports stay inside the call, so
+    the SQL tools and server start-up do not pay for LightGBM."""
+    try:
+        from src.inference import run
+        from src.modeling.config import load_config
+    except ImportError as error:
+        raise RuntimeError(
+            "Decisions need the modeling dependencies: uv run --group mcp --group modeling ..."
+        ) from error
+
+    load_env()
+    config = load_config(os.getenv("AURUM_INFERENCE_CONFIG", run.DEFAULT_CONFIG))
+    result, meta = await run.decide_day(
+        db.get_async_engine(), config, version or "latest-narrow", asof
+    )
+    return run.to_payload(result, meta, **view)
+
+
+@tool
+async def get_decisions(
+    asof: str | None = None, action: str | None = None, limit: int = 50, version: str | None = None
+) -> dict[str, Any]:
+    """BUY / SELL / HOLD for the S&P 500 from the newest trained model (top decile BUY,
+    bottom decile SELL). A relative ranking, not a price forecast - read `caveat`.
+    `asof` is a past date (default: newest, must be fresh); `action` filters to one label."""
+    return await _decisions(version, asof, action=action, limit=limit)
+
+
+@tool
+async def score_symbols(
+    symbols: list[str], asof: str | None = None, version: str | None = None
+) -> dict[str, Any]:
+    """Decision, decile (1-10) and score for the named tickers. Deciles are ranked against
+    the full day's universe, so the answer matches `get_decisions`."""
+    return await _decisions(version, asof, symbols=symbols, limit=len(symbols) or 1)
 
 
 @mcp.resource("aurum://catalog")

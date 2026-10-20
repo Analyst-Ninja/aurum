@@ -5,6 +5,7 @@
 #   ingest -c src/ingestion/configs/yahoo/ohlcv_1d.yaml -f False
 #   dbt    build --select bronze
 #   model  train -c src/modeling/configs/lgbm_xs_excess_5d.yaml
+#   infer  decide                         (BUY/SELL/HOLD from the newest -narrow run)
 #
 # Anything else is exec'd verbatim, so `sh`, `ls` and `--help` still work for debugging.
 set -eu
@@ -27,6 +28,9 @@ case "$command" in
         # the Dockerfile) points at the env-var-templated profile under docker/dbt/.
         cd "$DBT_PROJECT_DIR"
         exec dbt "$@"
+        ;;
+    infer)
+        exec python -m src.inference.cli "$@"
         ;;
     model)
         exec python -m src.modeling.cli "$@"

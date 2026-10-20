@@ -9,7 +9,10 @@ def test_tools_and_resource_are_registered():
     tools = {t.name for t in asyncio.run(server.mcp.list_tools())}
     resources = {str(r.uri) for r in asyncio.run(server.mcp.list_resources())}
 
-    assert tools == {"list_tables", "describe_table", "run_query", "refresh_catalog"}
+    assert tools == {
+        "list_tables", "describe_table", "run_query", "refresh_catalog",
+        "get_decisions", "score_symbols",
+    }
     assert resources == {"aurum://catalog"}
 
 

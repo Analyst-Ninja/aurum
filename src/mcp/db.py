@@ -20,6 +20,7 @@ from typing import Any
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, Engine
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from src.utils.env import load_env
 
@@ -72,6 +73,39 @@ def get_engine() -> Engine:
                 "-c default_transaction_read_only=on "
                 f"-c statement_timeout={timeout_ms}"
             ),
+        },
+    )
+
+
+@lru_cache(maxsize=1)
+def get_async_engine() -> AsyncEngine:
+    """asyncpg twin of ``get_engine`` for the decision tools, with the same credentials and
+    the same guards: read-only by default and a statement timeout, set per session."""
+    load_env()
+    user = os.getenv("AURUM_MCP_USERNAME")
+    password = os.getenv("AURUM_MCP_PASSWORD")
+    if not user:
+        logger.warning("AURUM_MCP_USERNAME unset - falling back to AURUM_USERNAME")
+        user, password = os.getenv("AURUM_USERNAME"), os.getenv("AURUM_PASSWORD")
+
+    url = URL.create(
+        "postgresql+asyncpg",
+        username=user,
+        password=password,
+        host=os.getenv("HOST"),
+        port=int(os.getenv("PORT", "5432")),
+        database=os.getenv("AURUM_MCP_DB_NAME", "aurum"),
+    )
+    return create_async_engine(
+        url,
+        pool_size=1,
+        pool_pre_ping=True,
+        connect_args={
+            "server_settings": {
+                "application_name": "aurum-mcp",
+                "default_transaction_read_only": "on",
+                "statement_timeout": os.getenv("AURUM_MCP_TIMEOUT_MS", "30000"),
+            }
         },
     )
 
@@ -157,7 +191,9 @@ def run_select(
 
     elapsed_ms = round((time.perf_counter() - started) * 1000)
     rows = [[_jsonable(v) for v in row] for row in fetched[:limit]]
-    logger.info("rows=%d truncated=%s ms=%d", len(rows), len(fetched) > limit, elapsed_ms)
+    logger.info(
+        "rows=%d truncated=%s ms=%d", len(rows), len(fetched) > limit, elapsed_ms
+    )
     return {
         "columns": columns,
         "rows": rows,

@@ -13,8 +13,8 @@
 # docker/entrypoint.sh. Docs: docs/operations/training-container.md,
 # docs/infra/aws-deployment-plan.md.
 #
-# A second, slim target — `--target mcp` — holds only the MCP server (no LightGBM, SHAP or
-# dbt) for the small EC2 host. It is declared first and the three-workload image stays the
+# A second, slimmer target — `--target mcp` — holds the MCP server and the decision path it
+# serves (LightGBM, no SHAP or dbt) for the small EC2 host. It is declared first and the three-workload image stays the
 # LAST stage, so a plain `docker build` (CI, compose, ECS) is unchanged and BuildKit never
 # builds the mcp stage for it.
 
@@ -41,12 +41,16 @@ COPY pyproject.toml uv.lock ./
 
 # --no-default-groups drops dev; [project].dependencies still install (pandas, edgartools,
 # yfinance — non-ML), because the ingestion runtime lives there rather than in a group.
-RUN uv sync --locked --no-build --no-default-groups --group mcp --no-install-project
+RUN uv sync --locked --no-build --no-default-groups --group mcp --group modeling --no-install-project
 
-# Only what src.mcp imports: the package itself and src.utils.
+# Only what src.mcp imports: the package itself and src.utils, plus src.inference and the
+# src.modeling pieces it reuses for the get_decisions / score_symbols tools. The model is
+# not baked in: it is fetched from S3 on first use (AURUM_ARTIFACTS_BUCKET).
 COPY src/__init__.py ./src/__init__.py
 COPY src/mcp/ ./src/mcp/
 COPY src/utils/ ./src/utils/
+COPY src/inference/ ./src/inference/
+COPY src/modeling/ ./src/modeling/
 
 RUN useradd --create-home --uid 1000 aurum && chown -R aurum:aurum /app
 USER aurum
