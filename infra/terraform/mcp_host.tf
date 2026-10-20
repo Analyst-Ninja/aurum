@@ -108,6 +108,25 @@ data "aws_iam_policy_document" "mcp" {
     ]
   }
 
+  # The decision tools fetch the newest trained run from the artifacts bucket. Read-only,
+  # and only the `runs/` prefix the export step writes.
+  statement {
+    sid       = "ListRuns"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.artifacts.arn]
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["runs/*"]
+    }
+  }
+
+  statement {
+    sid       = "ReadRuns"
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.artifacts.arn}/runs/*"]
+  }
+
   # SecureString parameters are decrypted with the account's default SSM key.
   statement {
     sid       = "DecryptSecureStrings"
@@ -161,6 +180,8 @@ resource "aws_instance" "mcp" {
     image    = "${aws_ecr_repository.aurum.repository_url}:${var.mcp_image_tag}"
     db_host  = aws_db_instance.aurum.address
     schemas  = var.mcp_schemas
+
+    artifacts_bucket = aws_s3_bucket.artifacts.bucket
   })
 
   # A new image tag changes user_data, and the unit reads the tag from it: replacing the box

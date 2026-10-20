@@ -20,6 +20,7 @@ docs/
 │   └── rationale/    why each model and seed is shaped the way it is
 ├── modeling/         src/modeling — design, in flight (Phase 6)
 ├── mcp/              src/mcp — design, not yet built
+├── inference/        src/inference — as built
 ├── operations/       CI/CD and infrastructure
 ├── infra/            the AWS deployment — built and running on a schedule
 └── design-specs/     dated design records, kept for history
@@ -37,6 +38,7 @@ docs/
 | train a model, or understand what we predict | [`modeling/modeling-design.md`](modeling/modeling-design.md) |
 | change the feature set | [`modeling/feature-selection-shap.md`](modeling/feature-selection-shap.md) |
 | backtest a signal | [`modeling/backtesting.md`](modeling/backtesting.md) |
+| get BUY / SELL / HOLD from the latest model, in the CLI or MCP | [`inference/inference.md`](inference/inference.md) |
 | deploy to AWS, or change a schedule | [`infra/aws-deployment-plan.md`](infra/aws-deployment-plan.md) |
 | query the warehouse from Claude, or build the MCP server | [`mcp/mcp-server-design.md`](mcp/mcp-server-design.md) |
 

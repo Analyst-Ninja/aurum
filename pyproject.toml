@@ -35,7 +35,10 @@ dbt = [
     "dbt-postgres>=1.11.0",
 ]
 modeling = [
+    "aiobotocore[boto3]>=3.9.2",
+    "asyncpg>=0.32.0",
     "boto3>=1.43.89",
+    "greenlet>=3.5.3",
     "lightgbm>=4.7.0",
     "matplotlib>=3.11.1",
     "pyarrow>=25.0.0",

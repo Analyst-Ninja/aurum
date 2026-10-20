@@ -34,6 +34,7 @@ exec docker run --rm --name aurum-mcp --network host \
   -e HOST="${db_host}" -e PORT=5432 \
   -e AURUM_MCP_USERNAME -e AURUM_MCP_PASSWORD \
   -e AURUM_MCP_SCHEMAS="${schemas}" \
+  -e AURUM_ARTIFACTS_BUCKET="${artifacts_bucket}" \
   "$image"
 SCRIPT
 chmod +x /usr/local/bin/aurum-mcp-start.sh
