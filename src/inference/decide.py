@@ -28,7 +28,12 @@ def score_frame(
 
     Replays the stored feature manifest through ``build_features``; a moved or missing
     column raises there rather than producing confident nonsense here.
+
+    The allow-list comes from the manifest, not from ``preprocess``. A narrowed run's list
+    is chosen by SHAP at training time, so the ``_narrow.yaml`` in the repo can be a
+    different (older) selection than the model that was trained and published.
     """
+    preprocess = preprocess.model_copy(update={"allow_list": manifest.get("allow_list")})
     frame = add_indicators(frame)
     matrix, _ = build_features(frame, preprocess, manifest=manifest)
     return frame[["symbol", "date"]].assign(score=booster.predict(matrix))

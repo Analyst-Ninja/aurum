@@ -35,6 +35,13 @@ ENV PYTHONUNBUFFERED=1 \
     AURUM_MCP_LISTEN_HOST=127.0.0.1 \
     AURUM_MCP_LISTEN_PORT=8000
 
+# libgomp1: the modeling group brings LightGBM, whose wheel links against OpenMP and
+# python:3.12-slim does not ship it — without it `import lightgbm` dies on libgomp.so.1 and
+# every get_decisions / score_symbols call fails with an unmapped OSError.
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./

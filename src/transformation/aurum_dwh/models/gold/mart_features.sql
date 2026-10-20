@@ -25,9 +25,17 @@
     tail would have to re-read the full date anyway. See dbt_project.yml.
 #}
 
+{#
+    The index serves live inference, which reads one day of this table:
+    `where date = (select max(date) ...)`. Without it both halves are full scans of
+    ~2.9M wide rows and the MCP role's 30s statement_timeout cancels the query. dbt
+    recreates the table on every build, so the index is declared here, not by hand.
+#}
+
 {{
     config(
-        materialized='table'
+        materialized='table',
+        indexes=[{'columns': ['date', 'symbol']}]
     )
 }}
 
