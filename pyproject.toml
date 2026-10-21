@@ -48,6 +48,13 @@ modeling = [
 mcp = [
     "mcp[cli]>=2.3.0",
 ]
+paper = [
+    "alpaca-py>=0.44.0",
+]
+backtesting = [
+    "backtrader>=1.9.78.123",
+    "vectorbt>=1.2.0",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "src/ingestion/runner.py" = ["F401"]

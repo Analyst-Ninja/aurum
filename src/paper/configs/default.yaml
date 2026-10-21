@@ -1,0 +1,19 @@
+capital: 100000
+long_only: false          # false = dollar-neutral long decile 10 / short decile 1, as replay
+leg_exposure: 0.5         # each leg's share of equity; 0.5 + 0.5 = 1x gross
+horizon: 5                # daily books averaged into the target (tranche scheme of the backtest)
+rebalance_every_n_days: 1
+snapshot_interval_min: 30 # mark-to-market cadence; never changes trades
+min_order_usd: 50
+cost_bps: 5               # SimBroker only: one-way slippage + fees per fill
+execution_time: "09:35"   # America/New_York; orders go in this far past the open
+bar_interval: 30Min       # backtest bar size (also the backtest snapshot interval)
+benchmark: SPY
+report_periods: [W, M, Q, Y]
+model_version: latest-narrow
+model_config: src/modeling/configs/lgbm_xs_excess_5d_narrow.yaml
+ledger_url: sqlite:///data/paper/ledger.db   # any SQLAlchemy URL; Postgres works too
+out_dir: data/paper
+alpaca_key: ALPACA_API_KEY        # env var *names*, as in the ingestion configs
+alpaca_secret: ALPACA_SECRET_KEY
+feed: iex

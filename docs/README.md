@@ -100,6 +100,7 @@ placeholder; these are the specification the code will be reviewed against.
 | Doc | Content |
 |---|---|
 | [`cicd.md`](operations/cicd.md) | GitHub Actions: lint, tests, SonarCloud gate, Terraform validation |
+| [`local-setup.md`](operations/local-setup.md) | Empty machine to backtest, all in Docker: Postgres, ingest, dbt, train, SHAP, backtests |
 | [`training-container.md`](operations/training-container.md) | The modelling training image: compose service, host-Postgres networking, bind mounts, non-root |
 | [`infra-as-code.md`](operations/infra-as-code.md) | Terraform for Snowflake objects, Kafka topics, Postgres roles; why plan/apply stays local |
 
