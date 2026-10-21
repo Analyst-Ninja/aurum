@@ -43,7 +43,7 @@ def run(config: PaperConfig, schedule: dict, bars: pd.DataFrame) -> EngineResult
             for data in self.datas:
                 price = data.open[0]
                 weight = float(target.get(data._name, 0.0))
-                wanted[data] = int(weight * equity / price) if price == price and price > 0 else 0
+                wanted[data] = int(weight * equity / price) if pd.notna(price) and price > 0 else 0
             # Sells first so freed cash is there for the buys.
             ordered = sorted(wanted.items(), key=lambda kv: kv[1] - self.getposition(kv[0]).size)
             for data, shares in ordered:

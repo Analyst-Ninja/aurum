@@ -42,7 +42,10 @@ class PaperConfig:
 
 
 def load_paper_config(path: str = DEFAULT_PATH) -> PaperConfig:
-    raw = yaml.safe_load(Path(path).read_text()) or {}
+    config_path = Path(path).resolve()
+    if config_path.suffix not in (".yaml", ".yml") or not config_path.is_file():
+        raise ValueError(f"Paper config must be an existing .yaml/.yml file: {path}")
+    raw = yaml.safe_load(config_path.read_text()) or {}
     known = {f.name for f in fields(PaperConfig)}
     unknown = set(raw) - known
     if unknown:
