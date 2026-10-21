@@ -92,7 +92,9 @@ def test_write_run_saves_files_and_report(tmp_path):
     assert {"report.html", "report.md", "params.json", "summary.json", "equity_sim.csv", "orders_sim.csv"} <= names
     assert (tmp_path / "latest").resolve() == run_dir.resolve()
     page = (run_dir / "report.html").read_text()
-    assert "Skipped engines" in page and "ImportError: nope" in page and "<polyline" in page
+    assert "Skipped engines" in page
+    assert "ImportError: nope" in page
+    assert "<polyline" in page
     table = compare.agreement(results, cfg.capital).set_index("engine")
     assert bool(table.loc["other", "agrees"]) is False  # +2% scale is far past the tolerance
 
@@ -100,7 +102,8 @@ def test_write_run_saves_files_and_report(tmp_path):
 def test_symbol_spelling_round_trips():
     from src.paper.symbols import from_alpaca, to_alpaca
 
-    assert to_alpaca("BF-B") == "BF.B" and from_alpaca("BRK.B") == "BRK-B"
+    assert to_alpaca("BF-B") == "BF.B"
+    assert from_alpaca("BRK.B") == "BRK-B"
     assert to_alpaca("AAPL") == "AAPL"
 
 
@@ -133,7 +136,8 @@ def test_fetch_bars_maps_symbols_and_drops_rejected(monkeypatch, tmp_path):
     cfg = config(out_dir=str(tmp_path), bar_interval="1Day")
     bars = fetch_bars(cfg, ["BF-B", "DEAD", "SPY"], "2026-01-01", "2026-02-01")
 
-    assert asked[0] == ["BF.B", "DEAD", "SPY"] and asked[1] == ["BF.B", "SPY"]
+    assert asked[0] == ["BF.B", "DEAD", "SPY"]
+    assert asked[1] == ["BF.B", "SPY"]
     assert sorted(bars["symbol"]) == ["BF-B", "SPY"]
 
 
@@ -146,6 +150,8 @@ def test_lumibot_child_env_has_no_broker_credentials(monkeypatch):
     monkeypatch.setenv("AURUM_PASSWORD", "p")
     monkeypatch.setenv("PATH", "/bin")
     env = _child_env(Path("/repo"))
-    assert "ALPACA_API_KEY" not in env and "AURUM_PASSWORD" not in env
-    assert env["PATH"] == "/bin" and env["PYTHONPATH"] == "/repo"
+    assert "ALPACA_API_KEY" not in env
+    assert "AURUM_PASSWORD" not in env
+    assert env["PATH"] == "/bin"
+    assert env["PYTHONPATH"] == "/repo"
     assert env["LUMIBOT_DISABLE_DOTENV"] == "1"

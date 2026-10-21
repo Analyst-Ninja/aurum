@@ -47,39 +47,46 @@ def _periods(args, config: PaperConfig) -> list[str]:
     return [x.strip().upper() for x in args.periods.split(",")] if args.periods else config.report_periods
 
 
+def _report(args, config: PaperConfig) -> None:
+    from src.paper.ledger import Ledger
+
+    snaps = Ledger(config.ledger_url).snapshots()
+    if snaps.empty:
+        raise ValueError("No snapshots yet; run `snapshot` first")
+    print(report.render(snaps["equity"], _periods(args, config), config.capital, snaps["benchmark"]))
+
+
+def _backtest(args, config: PaperConfig) -> None:
+    from src.paper.backtesting.runner import run_all
+
+    overrides = {"bar_interval": args.bar_interval, "model_version": args.model_version, "cost_bps": args.cost_bps}
+    for name, value in overrides.items():
+        if value is not None:
+            setattr(config, name, value)
+    engines = ["sim"] if args.command == "backtest" else [e.strip() for e in args.engines.split(",")]
+    run_all(config, args.start, args.end, engines, _periods(args, config), args.scores_file, args.bars_file)
+
+
+def _live(args, config: PaperConfig) -> None:
+    from src.paper.live import rebalance, snapshot, watch
+
+    if args.command == "rebalance":
+        rebalance(config, args.asof, args.dry_run, args.force)
+    elif args.watch:
+        watch(config)
+    else:
+        print(snapshot(config))
+
+
 def main() -> None:
     args = _parser().parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     config = load_paper_config(args.config)
+    handlers = {"rebalance": _live, "snapshot": _live, "report": _report}
     try:
-        if args.command == "rebalance":
-            from src.paper.live import rebalance
-
-            rebalance(config, args.asof, args.dry_run, args.force)
-        elif args.command == "snapshot":
-            from src.paper.live import snapshot, watch
-
-            watch(config) if args.watch else print(snapshot(config))
-        elif args.command == "report":
-            from src.paper.ledger import Ledger
-
-            snaps = Ledger(config.ledger_url).snapshots()
-            if snaps.empty:
-                raise ValueError("No snapshots yet; run `snapshot` first")
-            print(report.render(snaps["equity"], _periods(args, config), config.capital, snaps["benchmark"]))
-        else:
-            from src.paper.backtesting.runner import run_all
-
-            if args.bar_interval:
-                config.bar_interval = args.bar_interval
-            if args.model_version:
-                config.model_version = args.model_version
-            if args.cost_bps is not None:
-                config.cost_bps = args.cost_bps
-            engines = ["sim"] if args.command == "backtest" else [e.strip() for e in args.engines.split(",")]
-            run_all(config, args.start, args.end, engines, _periods(args, config), args.scores_file, args.bars_file)
-    except (RuntimeError, ValueError, FileNotFoundError) as error:
-        logger.error("%s", error)
+        handlers.get(args.command, _backtest)(args, config)
+    except (RuntimeError, ValueError, FileNotFoundError):
+        logger.exception("%s failed", args.command)
         sys.exit(1)
 
 

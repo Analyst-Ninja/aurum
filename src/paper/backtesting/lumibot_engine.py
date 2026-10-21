@@ -24,6 +24,8 @@ import pandas as pd
 from src.paper.backtesting.inputs import TZ, EngineResult, weight_frame
 
 TIMEOUT_S = 1800
+EQUITY_FILE = "equity.csv"
+ORDERS_FILE = "orders.csv"
 # Lumibot builds a live broker from any credentials it finds in the environment and fails
 # on a half-matching set (ALPACA_API_KEY without its own ALPACA_API_SECRET). The child
 # trades offline on supplied bars, so it gets none.
@@ -56,12 +58,12 @@ def run(config, schedule: dict, bars: pd.DataFrame) -> EngineResult:
             done = subprocess.run(command, capture_output=True, text=True, timeout=TIMEOUT_S, cwd=root, env=_child_env(repo))
         except (subprocess.TimeoutExpired, FileNotFoundError) as error:
             return EngineResult("lumibot", error=f"{type(error).__name__}: {error}")
-        if done.returncode != 0 or not (root / "equity.csv").exists():
+        if done.returncode != 0 or not (root / EQUITY_FILE).exists():
             tail = "\n".join((done.stderr or done.stdout).strip().splitlines()[-8:])
             return EngineResult("lumibot", error=f"child exited {done.returncode}: {tail}")
-        equity = pd.read_csv(root / "equity.csv", index_col=0, parse_dates=True).squeeze("columns")
+        equity = pd.read_csv(root / EQUITY_FILE, index_col=0, parse_dates=True).squeeze("columns")
         equity.index = pd.to_datetime(equity.index, utc=True)
-        orders = pd.read_csv(root / "orders.csv") if (root / "orders.csv").exists() else pd.DataFrame()
+        orders = pd.read_csv(root / ORDERS_FILE) if (root / ORDERS_FILE).exists() else pd.DataFrame()
         return EngineResult("lumibot", equity.rename("equity"), orders, note="daily bars; filled at the open of the submit session")
 
 
@@ -162,8 +164,8 @@ def main(root: Path) -> None:
         quiet_logs=True,
         save_stats_file=False,
     )
-    pd.Series(curve, name="equity").sort_index().to_csv(root / "equity.csv")
-    pd.DataFrame(log).to_csv(root / "orders.csv", index=False)
+    pd.Series(curve, name="equity").sort_index().to_csv(root / EQUITY_FILE)
+    pd.DataFrame(log).to_csv(root / ORDERS_FILE, index=False)
 
 
 if __name__ == "__main__":

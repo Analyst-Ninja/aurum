@@ -229,13 +229,15 @@ def test_run_all_prints_skipped_engines(tmp_path, capsys):
 
 def test_run_all_rejects_empty_score_window(tmp_path):
     scores_file, bars_file = write_inputs(tmp_path)
+    cfg = config()
     with pytest.raises(ValueError, match="No scores between"):
-        runner.run_all(config(), "2030-01-01", "2030-02-01", ["sim"], ["W"], scores_file, bars_file)
+        runner.run_all(cfg, "2030-01-01", "2030-02-01", ["sim"], ["W"], scores_file, bars_file)
 
 
 def test_run_all_rejects_bars_that_miss_the_score_dates(tmp_path):
     scores_file, bars_file = write_inputs(tmp_path)
     bars = pd.read_parquet(bars_file)
     bars.assign(timestamp=bars["timestamp"] - pd.Timedelta(days=730)).to_parquet(bars_file)
+    cfg = config()
     with pytest.raises(ValueError, match="No executions scheduled"):
-        runner.run_all(config(), "2026-01-05", "2026-03-06", ["sim"], ["W"], scores_file, bars_file)
+        runner.run_all(cfg, "2026-01-05", "2026-03-06", ["sim"], ["W"], scores_file, bars_file)

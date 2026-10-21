@@ -110,7 +110,7 @@ class SimBroker:
     def prices(self, symbols: list[str]) -> pd.Series:
         return self.mark.reindex(symbols)
 
-    def submit(self, orders: pd.DataFrame, asof: str) -> pd.DataFrame:
+    def submit(self, orders: pd.DataFrame, _asof: str) -> pd.DataFrame:
         for row in orders.itertuples():
             sign = 1.0 if row.side == "buy" else -1.0
             fill = row.price * (1 + sign * self.cost)

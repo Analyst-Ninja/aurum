@@ -44,8 +44,10 @@ def test_build_orders_truncates_and_skips_small():
     prices = pd.Series({"A": 10.0, "B": 20.0, "C": 10.0})
     orders = book.build_orders(target, pd.Series(dtype="float64"), prices, 1000.0, min_order_usd=50)
     got = orders.set_index("symbol")
-    assert got.loc["A", "side"] == "buy" and got.loc["A", "qty"] == 50
-    assert got.loc["B", "side"] == "sell" and got.loc["B", "qty"] == 25
+    assert got.loc["A", "side"] == "buy"
+    assert got.loc["A", "qty"] == 50
+    assert got.loc["B", "side"] == "sell"
+    assert got.loc["B", "qty"] == 25
     assert "C" not in got.index
 
 
@@ -78,8 +80,9 @@ def test_period_table_chains_bases():
 
 
 def test_period_rejects_unknown_code():
+    equity = _equity([1, 2, 3])
     with pytest.raises(ValueError):
-        report.period_table(_equity([1, 2, 3]), "X")
+        report.period_table(equity, "X")
 
 
 def test_summary_drawdown():
@@ -91,8 +94,9 @@ def test_summary_drawdown():
 def test_config_rejects_unknown_key(tmp_path):
     f = tmp_path / "c.yaml"
     f.write_text("capital: 5\nbogus: 1\n")
+    path = str(f)
     with pytest.raises(ValueError):
-        load_paper_config(str(f))
+        load_paper_config(path)
 
 
 def test_simulate_trades_next_session_and_marks_every_bar():
