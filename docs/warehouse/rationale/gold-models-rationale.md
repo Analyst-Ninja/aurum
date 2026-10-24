@@ -45,9 +45,9 @@ Four marts:
 | `mart_stock_screener` | symbol | 503 | 54 | 1 s | one row per company, latest known state — what the MCP server queries |
 
 `mart_training_set` drops 40,241 rows (1.4%) against `mart_features` — that is
-the tradability filter in §5.3, not row loss. `mart_feature_summary` is 10
-columns today because the seed still holds its single placeholder row; it widens
-as soon as a real SHAP run writes to it. A full `dbt build --select gold` takes
+the tradability filter in §5.3, not row loss. `mart_feature_summary` carries
+the keys and targets plus the features the seed marks `selected` (40 at the last SHAP run); a new
+`select-features` run changes the set. A full `dbt build --select gold` takes
 **~25 minutes** end to end.
 
 ```mermaid
@@ -374,8 +374,8 @@ uv run --group dbt dbt run --select mart_feature_summary
 That is the entire feature-selection loop from spec §3.7 — no code change, no
 model edit.
 
-**This model must build before any model has ever been trained.** The seed ships
-with a single placeholder row, so three guards keep it honest:
+**This model must build before any model has ever been trained.** The seed first shipped
+with a single placeholder row (it now holds a real ranking), so three guards keep it honest:
 
 1. the seed and training relations are looked up with `load_relation`, so an
    unseeded project compiles instead of failing on a missing table;

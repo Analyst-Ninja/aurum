@@ -39,7 +39,7 @@ written verbatim as `bronze`, `silver`, `gold` instead of being prefixed with th
 | Silver intermediate | `silver` | 5 `int_*` | `incremental` (3) / `table` (2) |
 | Gold | `gold` | 4 `mart_*` | `table` |
 
-237 tests are defined (schema tests plus 6 singular tests in `tests/`). Two of them — the
+235 dbt tests are defined (`dbt ls --resource-type test`, checked 2026-10-25: schema/source tests plus 7 singular tests in `tests/`). This is the one place the count is kept; other docs say "all dbt tests". Two of them — the
 `net_margin` and `price_to_earnings` range tests on `mart_features` — are configured with warn/error
 thresholds rather than zero tolerance, because a small number of rows genuinely sit outside the
 bounds; see [Known approximations](#known-approximations-and-debt).
@@ -695,12 +695,12 @@ the full-vs-incremental checksum in [Commands and verification](#commands-and-ve
 
 `mart_feature_summary` is `mart_training_set` narrowed to the columns named in
 `seeds/selected_features.csv`. That seed is written by the SHAP feature-selection loop in
-`src/modeling/` (not yet built). The whole loop is:
+`src/modeling/` (`select-features`, built; it runs in the monthly train task). The whole loop is:
 
 ```mermaid
 flowchart LR
     MT["gold.mart_training_set<br/>all features + targets"] --> TR["src/modeling<br/>train GBT, walk-forward folds"]
-    TR --> SH["shap.TreeExplainer<br/>rank by mean abs SHAP"]
+    TR --> SH["TreeSHAP (booster pred_contrib)<br/>rank by mean abs SHAP"]
     SH --> SEED["seeds/selected_features.csv<br/>feature_name, rank, mean_abs_shap,<br/>selected, model_version"]
     SEED --> DBT["dbt seed + dbt run --select mart_feature_summary"]
     DBT --> MS["gold.mart_feature_summary<br/>the narrowed training view"]
@@ -712,8 +712,8 @@ uv run --group dbt dbt seed
 uv run --group dbt dbt run --select mart_feature_summary
 ```
 
-**The model must compile before anything has ever been trained.** The seed ships with a single
-placeholder row, and three guards keep the unseeded/stale cases working:
+**The model must compile before anything has ever been trained.** The seed first shipped with a single
+placeholder row (it now holds a real ranking), and three guards keep the unseeded/stale cases working:
 
 1. the seed relation is looked up with `load_relation`, so an unseeded project compiles instead of
    failing on a missing table;
@@ -746,7 +746,7 @@ uv run --group dbt dbt build --select silver
 uv run --group dbt dbt build --select gold
 
 uv run --group dbt dbt build                      # everything
-uv run --group dbt dbt test                       # 237 tests
+uv run --group dbt dbt test                       # all dbt tests
 uv run --group dbt dbt run --select mart_features+ # a model and everything downstream
 ```
 

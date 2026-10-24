@@ -45,7 +45,7 @@ a CLI that `src/` never imports, so it lives in a third.
 ```bash
 cd src/transformation/aurum_dwh
 uv run --group dbt dbt seed          # company_meta, concept_map, selected_features
-uv run --group dbt dbt build         # all models + ~237 tests
+uv run --group dbt dbt build         # all models + all tests
 cd -
 ```
 
@@ -264,8 +264,10 @@ as model selection, because they chose the hyperparameters and will always look 
 ln -sfn <winning version> models/latest
 ```
 
-**What this is about:** `models/latest` is what inference reads. Today `save_run`
-repoints it automatically at whatever trained last, which is not a gate — the
+**What this is about:** `save_run` repoints `models/latest` automatically at whatever trained last, and
+with `--version-suffix` also `models/latest-full` / `models/latest-narrow`. **Inference reads
+`latest-narrow`** (the narrowed model), not `latest`; on a host with no `models/` mount (the MCP box) it
+falls back to the newest run exported to S3. None of these links is a gate — the
 two-sided rule (beat the incumbent on ICIR, lose no more than 10% of decile spread,
 **and** beat its net Sharpe at 10 bps) is still applied by hand. A model that predicts
 better but trades worse is not an improvement.
@@ -282,7 +284,10 @@ Ranks the current universe with the promoted model. It reads `mart_features`, wh
 construction has no target columns, and replays the stored feature manifest — a column
 that moved or went missing raises here rather than producing confident nonsense.
 
-**Scope:** decisions are emitted, never auto-traded.
+**Scope:** decisions are emitted, never auto-traded. To act on them, use `python -m src.inference.cli decide`
+([`../inference/inference.md`](../inference/inference.md)) and, optionally, Alpaca *paper* trading
+([`../paper/paper-trading.md`](../paper/paper-trading.md)). `python -m src.inference.cli replay` backtests the
+decision rule on the holdout. AURUM never trades real money.
 
 ---
 

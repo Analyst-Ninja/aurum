@@ -2,122 +2,203 @@
 
 ![AURUM: signal in the noise](docs/assets/aurum-thumbnail.svg)
 
-**Analytics & Unified Research for Market** — a streaming financial-data platform that unifies market prices, SEC EDGAR fundamentals, and news sentiment into an ML-ready Snowflake warehouse, powering realtime trading signals and a natural-language query interface.
+**Analytics & Unified Research for Market** — turns raw market prices and SEC filings into ML-ready features, trains a model on them, and emits explained BUY / SELL / HOLD decisions. It runs unattended on AWS and can place those decisions as **paper** trades on Alpaca. It never trades real money.
 
-> Ask *"Which tech stocks have P/E < 20 and grew revenue > 15% last quarter?"* — get an answer in seconds. Or let the trained model watch the live stream and emit buy/sell/hold signals with SHAP explanations.
+> Ask an AI agent *"Which tech stocks have P/E < 20 and grew revenue > 15% last quarter?"* through the MCP server, or run the model's latest decisions and watch them trade on paper.
 
-## Architecture
-
-```mermaid
-flowchart LR
-    YF["Yahoo Finance<br/>(websocket, 1-min OHLCV)"] --> K
-    ED["SEC EDGAR<br/>(10-K / 10-Q / 8-K, XBRL)"] --> K
-    NW["News APIs<br/>(sentiment-scored)"] --> K
-    K[["Kafka"]] --> PG[("Postgres<br/>landing")]
-    PG -->|Airflow incremental| SF["Snowflake<br/>raw → silver → gold (dbt)"]
-    SF --> ML["ML training<br/>+ SHAP feature selection"]
-    ML -->|model| RT["Realtime Inference"]
-    K -.->|live stream| RT --> DEC(["Trading decisions"])
-    SF --> MCP["FastMCP<br/>NL → SQL"] <--> U(["Users / AI agents"])
-```
-
-The diagram above is the **target** architecture (spec v2.0). See [Current state](#current-state) for what runs today.
+**Honest status:** the pipeline works end to end, but the model signal is weak (holdout IC 0.007, break-even cost about 18 bps). Every decision output carries that caveat. This is a research platform, not a money machine.
 
 ## How it works
 
-1. **Ingest** — three Kafka producers: a long-running websocket client streaming minute bars for the S&P 500, an incremental EDGAR poller (daily-index + watermark, never re-pulls history), and a news poller that scores sentiment with a fast ML classifier trained on LLM-labeled samples.
-2. **Land** — Kafka consumers write idempotently to Postgres.
-3. **Warehouse** — Airflow incrementally loads Postgres → Snowflake; dbt builds the medallion: cleaned staging → engineered financials & technicals → gold feature marts.
-4. **Learn** — gradient-boosted model trained on gold features; SHAP prunes the feature set and explains every prediction; walk-forward validation guards against leakage.
-5. **Act** — the Realtime Inference Module joins the live stream with the trained model and emits explained trading decisions.
-6. **Ask** — a custom FastMCP server converts natural language to SQL over the gold marts.
-
-## Ingestion framework
-
-Ingestion is built on a small, config-driven framework so every data source (Yahoo, EDGAR, news) follows one pattern. Two layers meet through two contracts, and a YAML file supplies all the wiring:
-
-- **Datasource** (`BaseDatasource`) — reads from one API or writes to one store: `read_data(run_date, watermarks)` / `write_data(run_date, df)`. Sinks add `get_watermarks()`.
-- **Feed** (`BaseFeed`) — the workflow. It reads watermarks to decide *what* to fetch, calls the input datasource, transforms the frame in `process()`, stamps run metadata plus a deterministic MD5 key, and writes through the output datasource.
-
-```
-configs/*.yaml ─▶ runner ─▶ factory ─▶ Feed.run()
-                                        ├─ output_ds.get_watermarks()   (incremental)
-                                        ├─ input_ds.read_data()         (Yahoo / EDGAR)
-                                        ├─ process()  +  RUN_DATE, EXECUTION_ID, MD5_HASH
-                                        └─ output_ds.write_data()       ─▶ Postgres
+```mermaid
+flowchart LR
+    YF["Yahoo Finance<br/>daily + 1-min OHLCV"] --> ING
+    ED["SEC EDGAR<br/>financial statements"] --> ING
+    ING["Ingestion<br/>(config-driven feeds)"] --> PG[("Postgres<br/>bronze / silver / gold")]
+    PG -->|dbt| FEAT["gold.mart_features<br/>+ training set"]
+    FEAT --> ML["Modeling<br/>LightGBM, purged walk-forward,<br/>SHAP feature selection"]
+    ML -->|model run| INF["Inference<br/>BUY / SELL / HOLD"]
+    INF --> PAPER["Paper trading<br/>Alpaca + backtest engines"]
+    PG --> MCP["MCP server<br/>read-only SQL + decisions"] <--> U(["Users / AI agents"])
+    INF --> MCP
 ```
 
-Feeds and datasources register themselves by name (`@register_feed`, `@register_datasource`) and the factory resolves them from the config's `type`, so swapping the sink, replacing yfinance, or adding a source never touches existing code — one class, one YAML, one import line in `runner.py`.
+1. **Ingest** — Yahoo prices and EDGAR statements are pulled by small config-driven feeds and written straight into Postgres. Market feeds are incremental (resume from a per-symbol watermark); EDGAR feeds reload fully but are skipped if the table is fresh.
+2. **Warehouse** — dbt builds a medallion: **bronze** (mirror of landing tables) → **silver** (cleaned staging, then engineered fundamentals and technicals) → **gold** (feature marts and the training set). ML and MCP read only from gold.
+3. **Learn** — LightGBM regression on `fwd_ret_5d_excess` (5-day market-neutral excess return), purged walk-forward validation so folds cannot leak, SHAP values (LightGBM's built-in `pred_contrib`) to prune the feature set, a flat-file model registry under `models/`.
+4. **Decide** — the newest trained run scores the latest date: top decile BUY, bottom decile SELL, rest HOLD. A stale-date guard refuses old data. `replay` backtests that rule against a momentum baseline.
+5. **Trade on paper** — `src/paper` turns decisions into Alpaca paper orders, keeps a ledger, and cross-checks backtests across four engines.
+6. **Ask** — a local or hosted MCP server lets AI agents inspect the gold tables, run read-only SQL and fetch decisions.
 
-**Run it:**
+Every step on AWS is scheduled (see [Deployment](#deployment)).
+
+## What is built
+
+| Part | What it does | Where | Docs |
+|---|---|---|---|
+| Ingestion | Yahoo OHLCV (1d, 1min) and EDGAR income / cash-flow / balance-sheet statements (yearly + quarterly) into Postgres | `src/ingestion/` | [Framework guide](docs/ingestion/datasource-framework.md), [EDGAR strategy](docs/ingestion/edgar-incremental-ingestion.md) |
+| Warehouse | dbt medallion on Postgres: 8 bronze, 3 staging, 5 intermediate, 4 gold models, 3 seeds, full test suite. `gold.mart_features` is about 2.9M rows across 503 symbols, 2000 to today | `src/transformation/aurum_dwh/` | [Warehouse guide](docs/warehouse/dwh-medallion.md), [Data dictionary](docs/warehouse/data-dictionary.md) |
+| Modeling | train, evaluate, select-features, compare, backtest, predict, export | `src/modeling/` | [Modeling design](docs/modeling/modeling-design.md), [Runbook](docs/modeling/pipeline-runbook.md) |
+| Inference | `decide` and `replay` from the newest trained run | `src/inference/` | [Inference](docs/inference/inference.md) |
+| MCP server | tools `list_tables`, `describe_table`, `run_query`, `refresh_catalog`, `get_decisions`, `score_symbols`; stdio or streamable-HTTP | `src/mcp/` | [MCP design](docs/mcp/mcp-server-design.md) |
+| Paper trading | Alpaca paper broker, simulated broker, ledger, vectorbt / backtrader / Lumibot cross-check | `src/paper/` | [Paper trading](docs/paper/paper-trading.md) |
+| AWS | RDS, ECS Fargate, Step Functions, EventBridge, EFS, S3, SNS, MCP host on EC2 — all Terraform | `infra/terraform/` | [AWS deployment](docs/infra/aws-deployment-plan.md), [IaC](docs/operations/infra-as-code.md) |
+| CI/CD | lint, tests, Sonar, Terraform validate, gated apply that ships images | `.github/workflows/` | [CI/CD](docs/operations/cicd.md) |
+
+## Quickstart
+
+Python 3.12, managed with [uv](https://docs.astral.sh/uv/). Postgres runs locally (or on RDS). The full walkthrough from an empty machine to a backtest is in [`docs/operations/local-setup.md`](docs/operations/local-setup.md).
+
+**1. `.env` in the repo root** (never commit it):
+
+```
+SEC_USER_AGENT=Your Name your@email.com   # EDGAR returns 403 without an honest one
+HOST=localhost
+PORT=5432
+AURUM_USERNAME=...
+AURUM_PASSWORD=...
+ALPACA_API_KEY=...        # only for src/paper
+ALPACA_SECRET_KEY=...     # only for src/paper
+```
+
+**2. Install.** Dependencies are split into groups so each workload installs only what it needs:
+
+| Group | Holds | Needed for |
+|---|---|---|
+| default | pandas, sqlalchemy, yfinance, edgartools, … | ingestion |
+| `dbt` | dbt-postgres | warehouse build |
+| `modeling` | lightgbm, scikit-learn, scipy, pyarrow, matplotlib, boto3, asyncpg | modeling, inference, tests |
+| `mcp` | mcp SDK | MCP server |
+| `paper` | alpaca-py | paper trading |
+| `backtesting` | backtrader, vectorbt | backtest cross-check |
+| `dev` | ruff, pytest, jupyter | development |
 
 ```bash
-# Yahoo daily OHLCV — full load (the default; needs .env)
-uv run python -m src.ingestion.cli -c src/ingestion/configs/yahoo/ohlcv_1d.yaml
-
-# same feed, incremental from the landing-table watermark
-uv run python -m src.ingestion.cli -c src/ingestion/configs/yahoo/ohlcv_1d.yaml -f False
-
-# EDGAR quarterly income statements for a given run date
-uv run python -m src.ingestion.cli -c src/ingestion/configs/edgar/income_statements_quarterly.yaml -d 2026-01-01
-
-uv run ruff check src/ main.py   # lint (the CI gate)
+uv sync --locked --no-build                     # ingestion only
+uv sync --group modeling --group mcp --group paper --group backtesting   # what CI installs
 ```
 
-**Build the warehouse:**
+**3. Ingest.** One YAML fully specifies a run:
+
+```bash
+# Yahoo daily OHLCV, full load (the default)
+uv run python -m src.ingestion.cli -c src/ingestion/configs/yahoo/ohlcv_1d.yaml
+# same feed, incremental from the landing-table watermark
+uv run python -m src.ingestion.cli -c src/ingestion/configs/yahoo/ohlcv_1d.yaml -f False
+# EDGAR quarterly income statements (-d = run date, default today)
+uv run python -m src.ingestion.cli -c src/ingestion/configs/edgar/income_statements_quarterly.yaml -d 2026-01-01
+```
+
+`-f` defaults to **True** (full load), so incremental runs need `-f False`. On an empty database a full load runs whatever `-f` says.
+
+**4. Build the warehouse:**
 
 ```bash
 cd src/transformation/aurum_dwh
-# dbt lives in the `dbt` dependency group, not the default sync — `--group dbt` is required
-uv run --group dbt dbt debug                  # profile aurum_dwh reaches Postgres aurum
 uv run --group dbt dbt deps && uv run --group dbt dbt seed
-uv run --group dbt dbt build                  # bronze → silver → gold, plus 237 tests
+uv run --group dbt dbt build        # bronze → silver → gold, with tests
 ```
 
-See the [Ingestion Framework Guide](docs/ingestion/datasource-framework.md) for diagrams, a step-by-step run walkthrough, the recipe for adding a new source, and the known rough edges.
+**5. Train, decide, trade on paper:**
 
-## Tech stack
+```bash
+uv run --group modeling python -m src.modeling.cli train -c src/modeling/configs/lgbm_xs_excess_5d.yaml
+uv run --group modeling python -m src.inference.cli decide
+uv run --group paper python -m src.paper.cli rebalance --dry-run
+```
 
-Kafka · Postgres · Apache Airflow · Snowflake · dbt · Python 3.12 (uv) · scikit-learn / XGBoost + SHAP · FastMCP · yfinance · SEC EDGAR APIs
+**6. MCP server:** `uv run --group mcp python -m src.mcp.server`
 
-## Documentation
+**Or use Docker.** One pinned image runs all four workloads: `ingest`, `dbt`, `model`, `infer`. It reaches the host's Postgres through `host.docker.internal`:
 
-Full index with the folder layout: [`docs/README.md`](docs/README.md).
+```bash
+docker compose -f docker-compose.modeling.yml build trainer
+docker compose -f docker-compose.modeling.yml run --rm trainer ingest -c src/ingestion/configs/yahoo/ohlcv_1d.yaml -f False
+docker compose -f docker-compose.modeling.yml run --rm trainer dbt build
+docker compose -f docker-compose.modeling.yml run --rm trainer model train -c src/modeling/configs/lgbm_xs_excess_5d.yaml
+docker compose -f docker-compose.modeling.yml run --rm trainer infer decide
+```
 
-| Doc | Content |
-|-----|---------|
-| [Technical Specification](docs/architecture/TECHNICAL_SPEC.md) | Full architecture, component specs, constraints, build phases |
-| [Ingestion Framework Guide](docs/ingestion/datasource-framework.md) | How datasources, feeds, and configs connect; how to add a source |
-| [Warehouse Guide](docs/warehouse/dwh-medallion.md) | The medallion as built: layer map, model DAG, feature formulas, the point-in-time lag, the incremental-lookback rule, how to add a feature |
-| [Data Dictionary](docs/warehouse/data-dictionary.md) | Every field, layer by layer, with formulas and gotchas |
-| [EDGAR Incremental Ingestion](docs/ingestion/edgar-incremental-ingestion.md) | Daily-index + watermark strategy for fetching only new filings |
-| [Infrastructure as Code](docs/operations/infra-as-code.md) | Terraform for Snowflake objects, Kafka topics, Postgres roles |
-| [CI/CD Pipeline](docs/operations/cicd.md) | GitHub Actions: lint, tests, SonarQube quality gate, Terraform validation |
+## Deployment
 
-## Current state
+Runs unattended on AWS (us-east-1). One image on ECR runs as four ECS Fargate tasks, orchestrated by three Step Functions state machines on EventBridge Scheduler crons (UTC):
 
-Design phase complete (spec v2.0, 2026-07-12). Implementation is mid-Phase 0 — most of the architecture above is not built yet.
+| State machine | Cron | Runs |
+|---|---|---|
+| `aurum-daily-market` | `cron(30 22 ? * MON-FRI *)` | ingest-market → dbt |
+| `aurum-semimonthly-edgar` | `cron(0 6 1,15 * ? *)` | ingest-market → ingest-edgar → dbt |
+| `aurum-monthly-train` | `cron(0 12 1 * ? *)` | train |
 
-**Working today**
+| Task | Size | Does |
+|---|---|---|
+| `aurum-ingest-market` | 2 vCPU / 8 GB | Yahoo 1d then 1min, incremental |
+| `aurum-ingest-edgar` | 1 vCPU / 4 GB | six EDGAR configs, each truncate then load |
+| `aurum-dbt` | 2 vCPU / 4 GB | `dbt seed` and `dbt build` |
+| `aurum-train` | 8 vCPU / 32 GB | full train → evaluate → SHAP select → narrowed train → compare → backtest → export to S3 |
 
-- `src/ingestion/` — the config-driven framework described above. Yahoo OHLCV (1d, 1min) and EDGAR income / cash-flow / balance-sheet statements (yearly + quarterly) land **directly in Postgres**; Kafka is not in the code path yet.
-- Watermark-based incremental loading against the landing tables.
-- `src/transformation/aurum_dwh/` — the **full bronze / silver / gold medallion**, built and tested: 8 `br_*` mirrors, 3 `stg_*` models, 5 `int_*` feature models, 4 `mart_*` marts, 3 seeds and 237 dbt tests. `gold.mart_features` is ~2.9M rows across 503 symbols from 2000 to today, with point-in-time fundamentals, ~120 raw features and a per-date cross-sectional block (`_z` / `_decile` / `_vs_sector` on 36 of them); `gold.mart_training_set` adds forward-return targets and walk-forward folds. It runs against local **Postgres**, not Snowflake. See the [Warehouse guide](docs/warehouse/dwh-medallion.md).
-- CI: ruff lint + pytest + SonarCloud quality gate on `main`, `develop`, `epic/*`, and PRs.
-- **Runs on AWS, unattended.** RDS Postgres, one image on ECR, four ECS Fargate task definitions and three Step Functions state machines on EventBridge Scheduler crons — market ingest plus the dbt build every weeknight, EDGAR on the 1st and 15th, the full modelling loop on the 1st. Failures publish to SNS and end the execution red. All Terraform, in `infra/terraform/`. See the [AWS deployment](docs/infra/aws-deployment-plan.md).
+Rules that matter:
 
-**Designed, in flight**
+- **dbt runs after every ingest**, so gold is never as-of two different dates. `dbt` and `train` stay separate states: a dbt failure must never reach training.
+- Failures publish to the `aurum-alerts` SNS topic **and** end the execution red.
+- On the 1st the machines run in order: market + EDGAR + dbt at 06:00, train at 12:00, market + dbt at 22:30.
+- Models and data live on EFS; run reports are exported to a private S3 bucket (365-day retention). RDS is Postgres 17 (`db.m7g.large`); a monthly budget guardrail is set (default $150).
+- An optional MCP host (`t3.micro` EC2) serves a read-only role on `gold` and `silver`. It has no public ingress; reach it with an SSM port-forward (`scripts/mcp-tunnel.sh`).
+- Cost and security caveats (the RDS security group defaults to `0.0.0.0/0`, the MCP server has no auth of its own) are in [`docs/security/risks.md`](docs/security/risks.md).
 
-- **Phase 6 — modelling.** `docs/modeling/` specifies preprocessing, purged walk-forward training, SHAP feature selection, backtesting and the retraining policy: 5-day horizon, regression on `fwd_ret_5d_excess` (market-neutral excess return), LightGBM, flat-file model registry, containerized training. Tracked as epic [#50](https://github.com/Analyst-Ninja/aurum/issues/50) and built under `src/modeling/` — start at the [Modelling design](docs/modeling/modeling-design.md).
+## CI/CD
 
-**Not built yet**
+GitHub Actions, all pinned by commit SHA:
 
-- Kafka producers/consumers, the realtime websocket feed, and news ingestion — so no sentiment exists anywhere in the warehouse.
-- Airflow DAGs (`airflow/` is a placeholder) and the Terraform under `infra/`.
-- Snowflake. The dbt project targets local Postgres; the medallion moves later.
-- ML training / SHAP (`src/modeling/`), realtime inference (`src/inference/`), and the FastMCP server (`src/mcp/`) — placeholders. `gold.mart_feature_summary` and `gold.mart_stock_screener` are already built to their contracts so those pieces can land without reshaping the warehouse.
-- Python tests. `tests/` is empty and the pytest step in CI is commented out (the 237 dbt tests are separate and do run).
+- **`ci.yml`** — on `main`, `develop`, `epic/*` and PRs: install groups `modeling mcp paper backtesting`, `ruff check src/ main.py`, `pytest tests/` with coverage, Sonar scan.
+- **`terraform.yml`** — `validate` (fmt, validate, tflint) on pushes and PRs; `apply` on merge to `main` only, behind a reviewer-gated environment, via GitHub OIDC. It builds and pushes the app image and the slim `mcp-<sha>` image if their tags are missing in the immutable ECR repo, then applies Terraform. So **a merge that changes `src/` ships to Fargate with no local step.** Rollback: `make push` / `-var="image_tag=<older sha>"`.
+- **`bootstrap.yml`** — repairs the OIDC role. **`terraform-destroy.yml`** — manual teardown, you must type `destroy-aurum`.
+
+## Not built yet
+
+- Kafka producers and consumers, the realtime websocket feed, and news ingestion (no sentiment exists anywhere).
+- Snowflake — the dbt project targets Postgres.
+- Airflow — scheduling is Step Functions. `airflow/` and `src/feed/` are empty placeholders, and `main.py` is empty.
+- Streaming (live) inference — inference is batch, daily.
+- Real-money trading and MLflow. Paper trading only; the registry is flat files.
+
+`docs/architecture/TECHNICAL_SPEC.md` describes the full target system; everything else in `docs/` describes what exists.
 
 ## Data sources & cost
 
-All data sources are free: Yahoo Finance (unofficial API), SEC EDGAR (public, rate-limited 10 req/s, honest `User-Agent` required), Wikipedia S&P 500 list. No vendor lock-in.
+Market and filing data are free: Yahoo Finance (unofficial API), SEC EDGAR (public, 10 req/s cap, honest `User-Agent` required), the Wikipedia S&P 500 list, and an Alpaca paper account (free, IEX feed). The AWS footprint is the real cost; the guardrail budget defaults to $150 a month.
+
+## Documentation
+
+Full index with folder layout: [`docs/README.md`](docs/README.md).
+
+| Doc | Content |
+|-----|---------|
+| [Local setup](docs/operations/local-setup.md) | Empty machine → warehouse → model → decisions → backtest |
+| [Technical specification](docs/architecture/TECHNICAL_SPEC.md) | The target architecture and build phases |
+| [Ingestion framework](docs/ingestion/datasource-framework.md) | Datasources, feeds, configs; how to add a source |
+| [Warehouse guide](docs/warehouse/dwh-medallion.md) | Layers, model DAG, feature formulas, point-in-time lag, how to add a feature |
+| [Modeling design](docs/modeling/modeling-design.md) | Framing, target, metrics, known biases; five companion docs |
+| [Inference](docs/inference/inference.md) | The decision rule and replay |
+| [MCP server](docs/mcp/mcp-server-design.md) | Tools, transports, hosting |
+| [Paper trading](docs/paper/paper-trading.md) | Alpaca, ledger, backtest engines |
+| [AWS deployment](docs/infra/aws-deployment-plan.md) | Schedule DAG, sizing, troubleshooting |
+| [Infrastructure as code](docs/operations/infra-as-code.md) | Terraform layout, bootstrap, deploy script |
+| [CI/CD](docs/operations/cicd.md) | Workflows, gates, image shipping |
+| [Training container](docs/operations/training-container.md) | The one image and compose service |
+| [Security review](docs/security/risks.md) | Known risks |
+
+## Repository layout
+
+```
+src/ingestion/        feeds, datasources, configs, freshness gate, truncate
+src/transformation/   aurum_dwh dbt project (bronze / silver / gold, seeds, tests)
+src/modeling/         data, models, evaluate, explain (SHAP), backtest, export
+src/inference/        decide, replay
+src/mcp/              FastMCP server, catalog
+src/paper/            broker, ledger, live loop, backtesting engines
+src/utils/            env, paths, symbol lists
+infra/terraform/      AWS stack + bootstrap/ (GitHub OIDC)
+docker/, scripts/     image, entrypoint, deploy.sh, mcp-tunnel.sh
+tests/                unit tests per package
+docs/                 see docs/README.md
+```

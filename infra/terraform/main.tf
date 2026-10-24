@@ -278,7 +278,8 @@ resource "aws_ssm_parameter" "sec_user_agent" {
 # --- Alerts ------------------------------------------------------------------------
 #
 # The topic lives here because the task role's sns:Publish has to be scoped to an ARN.
-# GH-75 adds the email subscription, the Step Functions Catch states and the alarms.
+# GH-75 added the email subscription and the Step Functions Catch states; the budget publishes here
+# too. There are no CloudWatch alarms.
 
 resource "aws_sns_topic" "alerts" {
   name = "${var.project}-alerts"

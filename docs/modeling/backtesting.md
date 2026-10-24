@@ -1,10 +1,13 @@
 # Backtesting — turning a ranking into a strategy, and then distrusting it
 
-> **Design — not yet built.** Specifies `src/modeling/backtest/`, implemented under
-> [#56](https://github.com/Analyst-Ninja/aurum/issues/56). Entry point:
+> **Built.** `src/modeling/backtest/` (`costs`, `engine`, `portfolio`, `report`, `runner`), implemented
+> under [#56](https://github.com/Analyst-Ninja/aurum/issues/56). Entry point:
 > [`modeling-design.md`](modeling-design.md).
 >
-> **Scope reminder:** AURUM emits decisions; it never executes trades. This module simulates.
+> **Scope reminder:** this module simulates the model's ranking on history. It places no orders.
+> AURUM never trades real money; the separate [`src/paper`](../paper/paper-trading.md) module places
+> Alpaca **paper** orders from the inference decisions and cross-checks the decision rule on
+> intraday bars with other engines.
 
 Contents:
 
@@ -215,7 +218,9 @@ search inflates this number faster than it improves the model.
 
 ## 8. Why no backtesting framework
 
-Vectorized pandas on a daily grid. **No zipline, vectorbt or backtrader.**
+Vectorized pandas on a daily grid. **No zipline, vectorbt or backtrader in this engine.**
+(The paper module runs vectorbt, backtrader and Lumibot later, only as an independent cross-check
+of the BUY/SELL/HOLD decision rule on intraday bars; see [`../paper/paper-trading.md`](../paper/paper-trading.md).)
 
 The whole problem is ~6,600 dates × ~450 names of daily data with a single rebalance rule. That is
 a few array operations. An event-driven framework exists to handle intraday order books, partial
@@ -232,7 +237,7 @@ The one thing to keep in mind while implementing: §7.1 runs the engine ~500 tim
 | # | Gap | Cost | Fix |
 |---|---|---|---|
 | 1 | **Survivorship bias** — the universe is today's S&P 500 applied back to 2000 | Upward bias on every number here, largest single caveat. The short book is missing precisely the companies that failed | Ingest historical index membership |
-| 2 | Fills assumed at `adj_close`, no slippage beyond the impact term | Overstates achievable execution | Intraday execution model, Phase 7 |
+| 2 | Fills assumed at `adj_close`, no slippage beyond the impact term | Overstates achievable execution | Partly addressed: the paper module's `SimBroker` fills at the open of the submit bar with `cost_bps`; this engine is unchanged |
 | 3 | Borrow cost zero, shortability universal | Net Sharpe is an upper bound | Real borrow data |
 | 4 | Impact coefficient `k` is assumed, not calibrated | The capacity estimate is order-of-magnitude only | Calibrate against realized fills if the strategy is ever traded |
 | 5 | No index-inclusion or corporate-action event handling beyond `adj_close` adjustment | Rare-event P&L is approximate | — |

@@ -1,15 +1,16 @@
 # MCP server — a read-only SQL window onto the gold marts
 
-> **As built.** Local stdio server in `src/mcp/`, modelled on
-> [`ColeMurray/aws-athena-mcp`](https://github.com/ColeMurray/aws-athena-mcp), over Postgres `gold`.
-> The earlier, heavier design (sqlglot AST gate, TTL cache, seven tools) was dropped as more machinery than
-> the database's own guarantees need.
+> **As built.** FastMCP server in `src/mcp/` over Postgres `gold`, modelled on
+> [`ColeMurray/aws-athena-mcp`](https://github.com/ColeMurray/aws-athena-mcp). Runs locally over stdio or
+> hosted over streamable-HTTP (see *Hosting on EC2*). Six tools: four SQL/catalog tools plus two that serve
+> inference decisions. The earlier, heavier design (sqlglot AST gate, TTL cache, seven tools) was dropped as
+> more machinery than the database's own guarantees need.
 
 ## Shape
 
 | Module | Job |
 |---|---|
-| `src/mcp/server.py` | `MCPServer` app: four tools and the `aurum://catalog` resource. `python -m src.mcp.server` |
+| `src/mcp/server.py` | FastMCP app: six tools and the `aurum://catalog` resource. `python -m src.mcp.server` |
 | `src/mcp/db.py` | Read-only engine, `run_select()`, first-keyword check, env config |
 | `src/mcp/catalog.py` | In-memory table catalog: dbt docs files, live fallback |
 
@@ -21,6 +22,14 @@
 | `describe_table(table, schema="gold")` | columns (name, type, description); live lookup on a cache miss |
 | `run_query(sql, max_rows=1000)` | columns, rows, row_count, truncated, elapsed_ms |
 | `refresh_catalog()` | reloads the catalog after a dbt build |
+| `get_decisions(asof=None, action=None, limit=50, version=None)` | BUY / SELL / HOLD for the S&P 500 from the newest narrowed run (`latest-narrow`); `action` filters to one label; carries a `caveat` field about the weak signal |
+| `score_symbols(symbols, asof=None, version=None)` | decision, decile (1-10) and score for named tickers, ranked against the full day's universe so it matches `get_decisions` |
+
+The two decision tools import `src.inference` and `src.modeling` lazily, so they need the `modeling` group
+(`uv run --group mcp --group modeling ...`) and a trained model under `models/`. The SQL tools start without
+LightGBM. See [`../inference/inference.md`](../inference/inference.md). Lumibot (used by `src/paper`'s
+cross-check) needs `mcp<2` while this server is written for mcp 2.x, which is why that engine runs in a child
+process; see [`../paper/paper-trading.md`](../paper/paper-trading.md).
 
 The reference's `get_status` / `get_result` do not exist: Athena is asynchronous, Postgres is not, and
 `statement_timeout` replaces the poll loop. The connected client writes the SQL; there is no LLM in the server.

@@ -1,3 +1,7 @@
+> **Aspirational, not the current tree.** This is the layout the target spec imagined (Kafka, Snowflake,
+> Airflow, `common/`, `mcp_server/`). The real layout is in the README's "Repository layout" section; the
+> target is described in `docs/architecture/TECHNICAL_SPEC.md`.
+
 ```md
 aurum/
 ├── src/

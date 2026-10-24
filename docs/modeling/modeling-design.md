@@ -1,14 +1,15 @@
 # Modelling — what we are predicting, with what, and how we will know
 
-> **Design — not yet built.** `src/modeling/` is an empty placeholder. This document and its three
-> companions describe Phase 6 as designed; they are the specification the code will be reviewed
-> against, not a description of running code. Everything in `docs/warehouse/` *is* built.
+> **Built.** `src/modeling/` implements this design (epic [#50](https://github.com/Analyst-Ninja/aurum/issues/50),
+> children #51–#57) and runs monthly on AWS. Where a section still reads as a plan, the code in
+> `src/modeling/` and the [`pipeline-runbook.md`](pipeline-runbook.md) win.
 >
-> Implements [#50](https://github.com/Analyst-Ninja/aurum/issues/50). Companions:
+> Companions: [`pipeline-runbook.md`](pipeline-runbook.md) ·
 > [`preprocessing-contract.md`](preprocessing-contract.md) ·
 > [`training-and-retraining.md`](training-and-retraining.md) ·
 > [`feature-selection-shap.md`](feature-selection-shap.md) ·
-> [`backtesting.md`](backtesting.md)
+> [`backtesting.md`](backtesting.md) · downstream: [`../inference/inference.md`](../inference/inference.md),
+> [`../paper/paper-trading.md`](../paper/paper-trading.md)
 
 Written for someone who knows data engineering but not quantitative finance. Every finance term is
 explained the first time it appears. All measured numbers were taken from the live warehouse on

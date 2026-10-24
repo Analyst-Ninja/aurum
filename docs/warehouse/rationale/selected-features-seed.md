@@ -125,7 +125,7 @@ The approved plan (now folded into `docs/warehouse/dwh-medallion.md`) originally
 
 ## 4. Current state and what happens next
 
-Right now the file has one row: `ret_21d`, flagged selected, `model_version = placeholder`, `mean_abs_shap = 0.0`.
+*History (until 2026-09-06):* the file had one row, `ret_21d`, flagged selected, `model_version = placeholder`, `mean_abs_shap = 0.0`. It now holds the 193-row ranking written by `select-features`, 40 selected.
 
 `ret_21d` was chosen deliberately — a 21-day return needs nothing but price history, so it is certain to exist in `mart_training_set` whatever else changes in Phases 2–4. A placeholder naming a feature that later gets renamed would reintroduce the compile failure this row exists to prevent.
 

@@ -6,7 +6,7 @@ schedules live**
 [#78](https://github.com/Analyst-Ninja/aurum/issues/78),
 [#74](https://github.com/Analyst-Ninja/aurum/issues/74),
 [#75](https://github.com/Analyst-Ninja/aurum/issues/75) done)
-**Date:** 2026-09-06
+**Date:** 2026-09-06 (reviewed against the code 2026-10-25; MCP host, OIDC apply and destroy workflow came after the original text)
 **Related:** [../operations/infra-as-code.md](../operations/infra-as-code.md) ·
 [../operations/training-container.md](../operations/training-container.md) ·
 [../operations/cicd.md](../operations/cicd.md) ·
@@ -25,7 +25,7 @@ This plan moves that to AWS and puts it on a schedule:
 - **RDS Postgres** replaces local Postgres — landing plus bronze/silver/gold in one instance.
 - **One image on ECR**, run as **ECS Fargate tasks** for ingestion, dbt and modelling.
 - **Step Functions + EventBridge Scheduler** replace manual invocation.
-- **Terraform** owns the infrastructure; state in S3, `apply` run locally.
+- **Terraform** owns the infrastructure; state in S3, `apply` runs in GitHub Actions on merge to `main` (or locally via `scripts/deploy.sh`) — see [`../operations/cicd.md`](../operations/cicd.md).
 
 Two constraints shape everything below:
 
@@ -33,9 +33,11 @@ Two constraints shape everything below:
 2. ~~**Budget ceiling: $20/month.**~~ Held until the first backfill, then abandoned for the
    database — see §5. The topology it produced was kept.
 
-**Not included:** Kafka/MSK, Snowflake, `src/inference/`, Airflow, model serving,
-automatic promotion, multiple environments, Multi-AZ. The MCP server is hosted separately on one
-small EC2 instance, reached over an SSM port-forward — see `docs/mcp/mcp-server-design.md` (Hosting on EC2).
+**Not included in the scheduled chains:** Kafka/MSK, Snowflake, Airflow, automatic promotion, multiple
+environments, Multi-AZ, and any scheduled inference or paper trading (`infer decide` and `src/paper` are run on
+demand). The MCP server — which also serves the inference decisions via `get_decisions` — is hosted separately on
+one small EC2 instance, reached over an SSM port-forward; see `docs/mcp/mcp-server-design.md` (Hosting on EC2).
+Terraform for that host is `infra/terraform/mcp_host.tf`.
 
 ## 2. Schedules
 
@@ -83,12 +85,12 @@ because every ingest is followed, inside its own machine, by the build that cons
 ```mermaid
 flowchart LR
   subgraph daily["aurum-daily-market · cron(30 22 ? * MON-FRI *)"]
-    IM["ingest-market<br/>ohlcv_1d + ohlcv_1min<br/>-f False"] --> DBT["dbt<br/>seed + build<br/>237 tests"]
+    IM["ingest-market<br/>ohlcv_1d + ohlcv_1min<br/>-f False"] --> DBT["dbt<br/>seed + build<br/>all tests"]
   end
 
   subgraph semi["aurum-semimonthly-edgar · cron(0 6 1,15 * ? *)"]
     IM2["ingest-market<br/>same feeds, incremental"] --> IE["ingest-edgar<br/>truncate + load ×6<br/>serial, SEC 10 req/s"]
-    IE --> DBT2["dbt<br/>seed + build<br/>237 tests"]
+    IE --> DBT2["dbt<br/>seed + build<br/>all tests"]
   end
 
   subgraph monthly["aurum-monthly-train · cron(0 12 1 * ? *)"]
@@ -165,7 +167,7 @@ semantics the ten-state chain was hand-building with `Next`.
 For four scheduled jobs and one operator, that is the right trade. **The one exception is
 `dbt` versus `train`**, which stay separate task definitions and separate states: a dbt
 failure must never reach `train` — training on a half-built `mart_features` produces a
-model that looks fine and is not — and there is no reason to start a 4 vCPU / 16 GB task
+model that looks fine and is not — and there is no reason to start an 8 vCPU / 32 GB task
 to discover dbt is broken.
 
 Everything the ten-state table used to specify still happens, in `tasks.tf`'s `train`
@@ -487,7 +489,7 @@ there is no NAT.
    and `/app/models/seeds/`, which §2.1 depends on.
 
 **Accept when** `gold.mart_features` holds ~2.9 M rows across 503 symbols, `dbt test` gives the
-documented **237 tests, 2 warn, 0 error**, and one `models/<date>-<sha>/` exists with `metrics.json`
+documented result (**all tests pass, 2 warn on the known outliers, 0 error**), and one `models/<date>-<sha>/` exists with `metrics.json`
 and `backtest/summary.json` — carrying a real sha, not `unknown`.
 
 The local Postgres is not decommissioned. It stays as the reference copy until a full week of
@@ -521,7 +523,7 @@ link. Until someone does, every failure is silent.
 | State fails instantly, `AccessDeniedException` on `events:PutRule` | `.sync` needs the managed `StepFunctionsGetEventsForECSTaskRule` grant | It is in `data.aws_iam_policy_document.sfn`; check the role actually attached |
 | Task stuck in `PROVISIONING` until timeout | no public IP, and there is no NAT to fall back on | `AssignPublicIp = "ENABLED"` in `local.sfn_network` |
 | Execution green, but no data landed | a feed swallowed its exception | `src/ingestion/cli.py` exits 1 on `execution_status == "FAILED"` — verify the image is new enough to carry it |
-| `train` exits 137 | OOM; 8 GB is not enough for a 2.9M × 228 panel | the task definition is 16 GB ([training-container.md](../operations/training-container.md) §5) |
+| `train` exits 137 | OOM; 8 GB is not enough for a 2.9M × 228 panel | the task definition is 8 vCPU / 32 GB ([training-container.md](../operations/training-container.md) §5) |
 | `ingest-market` exits 137 with a bare `Killed` right after "Writing data" | a **first load**, not an increment: the landing table does not exist, so `get_watermarks` returns `{}` and the feed pulls 503 symbols from 2000 to today. The task is sized for daily increments | back-fill once with `run-task --overrides '{"cpu":"4096","memory":"30720",…}'`, one feed at a time; after that the watermark exists and the nightly run fits. `write_data` chunks at 50k rows, which bounds the batch but not the pull |
 | `dbt build` dies with `SSL SYSCALL error: EOF detected` | RDS restarted, or `CPUCreditBalance` hit zero on a burstable class | `db.m7g.large` is non-burstable; check `apply_immediately` modifications are not in flight |
 | `dbt build` exits 1 with `could not extend file ... No space left on device` | RDS is out of disk. The gold build holds `mart_features` and `mart_training_set` (~2.9M × 228 each) at once, plus one set of temp sort/hash spill files **per dbt thread** | `db_allocated_storage` is 100 GB. Autoscaling will not rescue this — it needs free space under 10% sustained and holds a 6-hour cooldown, while the build consumed 18 GB in ~35 minutes. Watch `FreeStorageSpace` |
@@ -570,7 +572,7 @@ aws ecs run-task --cluster aurum --task-definition aurum-dbt --launch-type FARGA
   --overrides '{"containerOverrides":[{"name":"aurum","command":["sh","-c","exit 1"]}]}'
 
 # warehouse correctness, with a local .env pointed at the RDS endpoint
-cd src/transformation/aurum_dwh && uv run --group dbt dbt test    # 237 tests, 2 warn, 0 error
+cd src/transformation/aurum_dwh && uv run --group dbt dbt test    # all tests, 2 warn on documented outliers, 0 error
 psql -c "select count(*), count(distinct symbol), max(date) from gold.mart_features;"
 ```
 

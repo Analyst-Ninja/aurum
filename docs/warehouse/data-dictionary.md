@@ -133,10 +133,11 @@ Maps raw XBRL concepts to canonical names. The single place issuer tag variation
 
 Rationale and measured coverage: `docs/warehouse/rationale/concept-map-rationale.md`.
 
-### `selected_features.csv` — 1 row (placeholder)
+### `selected_features.csv` — 193 rows (one per ranked feature)
 
-Written by the SHAP loop in `src/modeling/`; ships with one placeholder row so
-`mart_feature_summary` compiles before anything has been trained.
+Written by the SHAP loop (`select-features` in `src/modeling/`). It began as a single placeholder row so
+`mart_feature_summary` compiled before anything had been trained, and now holds the full ranking of
+`mart_training_set`'s features.
 
 | Column | Meaning |
 |---|---|
@@ -405,7 +406,7 @@ All four targets are **NULL for the last N trading dates by construction** and m
 
 `mart_training_set` narrowed to the features named in `seeds/selected_features.csv`. Always carries
 the keys and targets regardless of the seed: `symbol`, `date`, `sector`, `fold_id`, `fwd_ret_5d`,
-`fwd_ret_21d`, `fwd_ret_5d_excess`, `fwd_ret_5d_xs_decile`, `label_up_5d`. With the placeholder seed
+`fwd_ret_21d`, `fwd_ret_5d_excess`, `fwd_ret_5d_xs_decile`, `label_up_5d`. With an empty or stale seed
 it falls back to the full training set — an unselected panel, never an empty one.
 
 ### `mart_stock_screener` — grain `(symbol)` · 503 rows

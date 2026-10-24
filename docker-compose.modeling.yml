@@ -3,7 +3,7 @@
 #   docker compose -f docker-compose.modeling.yml run --rm trainer \
 #     model train -c src/modeling/configs/lgbm_xs_excess_5d.yaml
 #
-# The first argument after `trainer` picks the workload — `ingest`, `dbt` or `model` —
+# The first argument after `trainer` picks the workload — `ingest`, `dbt`, `model` or `infer` —
 # and everything after it goes to that CLI unchanged. See docker/entrypoint.sh,
 # docs/operations/training-container.md and docs/infra/aws-deployment-plan.md.
 
