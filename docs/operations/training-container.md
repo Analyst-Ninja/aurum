@@ -1,7 +1,7 @@
 # AURUM — Training Container
 
 **Status:** Implemented ([#57](https://github.com/Analyst-Ninja/aurum/issues/57), Phase 6);
-extended to all three workloads in [#72](https://github.com/Analyst-Ninja/aurum/issues/72)
+extended to ingestion and dbt in [#72](https://github.com/Analyst-Ninja/aurum/issues/72) and to inference decisions later
 **Related:** [training-and-retraining.md](../modeling/training-and-retraining.md) §9 ·
 [pipeline-runbook.md](../modeling/pipeline-runbook.md) · [cicd.md](cicd.md) ·
 [aws-deployment-plan.md](../infra/aws-deployment-plan.md)
@@ -15,18 +15,24 @@ set. Training on the host works, but "works" depends on whatever Python happens 
 installed: `metadata.json` *records* package versions, it does not *enforce* them. The
 container closes that gap — `uv sync --locked` resolves nothing, it installs `uv.lock`.
 
-**One image, three workloads.** #57 built this for training only. #72 widened it to
-ingestion and dbt as well, because the AWS deployment runs all three from ECS and one
-image is simpler to build, tag and promote than three
-([aws-deployment-plan.md](../infra/aws-deployment-plan.md) §4). No Airflow, no MLflow
-service, no model serving — those remain out of scope.
+**One image, four workloads.** #57 built this for training only. #72 widened it to
+ingestion and dbt, because the AWS deployment runs them from ECS and one image is simpler
+to build, tag and promote than several ([aws-deployment-plan.md](../infra/aws-deployment-plan.md) §4).
+`infer` (BUY/SELL/HOLD decisions) was added after. No Airflow and no MLflow; model serving
+is the separate slim `mcp` image below.
+
+**A second, slim image.** `docker/aurum.Dockerfile` has an `mcp` build target
+(`docker build --target mcp -f docker/aurum.Dockerfile .`): the `mcp` and `modeling` groups, only the
+`mcp`, `utils`, `inference` and `modeling` packages, entrypoint `python -m src.mcp.server`. It is what the
+EC2 MCP host runs, tagged `mcp-<sha>` ([mcp-server-design.md](../mcp/mcp-server-design.md)). The default
+(last) stage is the full image described here.
 
 Files:
 
 | File | Purpose |
 |------|---------|
 | `docker/aurum.Dockerfile` | `python:3.12-slim` + uv + the `modeling` **and** `dbt` groups, non-root |
-| `docker/entrypoint.sh` | dispatches on the first argument: `ingest`, `dbt`, `model` |
+| `docker/entrypoint.sh` | dispatches on the first argument: `ingest`, `dbt`, `model`, `infer` |
 | `docker/dbt/profiles.yml` | env-var-templated dbt profile, used **only** inside the container |
 | `docker-compose.modeling.yml` | the `trainer` service: env, host networking, bind mounts |
 | `.dockerignore` | keeps the build context to source + lockfile |
@@ -49,9 +55,14 @@ docker compose -f docker-compose.modeling.yml run --rm trainer model  backtest -
 docker compose -f docker-compose.modeling.yml run --rm trainer ingest -c src/ingestion/configs/yahoo/ohlcv_1d.yaml -f False
 docker compose -f docker-compose.modeling.yml run --rm trainer dbt    build --select bronze
 docker compose -f docker-compose.modeling.yml run --rm trainer dbt    debug
+docker compose -f docker-compose.modeling.yml run --rm trainer infer  decide
 ```
 
-Anything that is not `ingest`, `dbt` or `model` is `exec`'d verbatim, so `sh`, `id` and
+The stock image has the `dbt` and `modeling` groups only. `src/paper` needs the `paper` and `backtesting`
+groups, so run it on the host (`uv run --group paper ...`) or add the groups to the build; see
+[../paper/paper-trading.md](../paper/paper-trading.md) and [local-setup.md](local-setup.md).
+
+Anything that is not `ingest`, `dbt`, `model` or `infer` is `exec`'d verbatim, so `sh`, `id` and
 `--help` still work for debugging.
 
 > **Migrating from the #57 form:** the entrypoint used to be `python -m src.modeling.cli`,

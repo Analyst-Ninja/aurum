@@ -2,6 +2,12 @@
 
 Reviewed local `main` at commit `b084152`.
 
+> **Status (2026-10-25):** this is a point-in-time review and has not been redone. Only the first finding was
+> re-checked against current code (`db_publicly_accessible = true` and `db_ingress_cidrs = ["0.0.0.0/0"]` are
+> still the defaults in `infra/terraform/variables.tf`). Later commits added the reviewer-gated `apply`
+> environment and changed how `bootstrap.yml` authenticates, and `src/paper` handles Alpaca keys; re-verify
+> findings 2–5 before relying on them.
+
 ## Summary
 
 Overall risk is **High**.

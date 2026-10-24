@@ -1,7 +1,7 @@
 # AURUM — CI/CD Pipeline
 
-**Version:** 1.0
-**Date:** 2026-07-12
+**Version:** 2.0
+**Updated:** 2026-10-25
 **Status:** Implemented (workflows live in `.github/workflows/`)
 **Related:** [TECHNICAL_SPEC.md](../architecture/TECHNICAL_SPEC.md) · [infra-as-code.md](infra-as-code.md)
 
@@ -9,44 +9,41 @@
 
 ## 1. Design
 
-Two workflows, one principle: **CI validates everything; anything touching live local infra applies locally.**
+Four workflows, one principle: **CI validates everything; merging to `main` ships it.**
 
-| Workflow | File | Triggers | Jobs |
+| Workflow | File | Triggers | What it does |
 |----------|------|----------|------|
-| CI | `.github/workflows/ci.yml` | push to `main`, all PRs | `python` (ruff lint + pytest) → `sonarqube` (scan + quality gate) |
-| Terraform | `.github/workflows/terraform.yml` | PR touching `infra/terraform/**`; push to `main` touching that or anything in the image (`src/`, `docker/`, `main.py`, `pyproject.toml`, `uv.lock`) | `validate` (fmt, validate, tflint) → `apply` (build + push the image, then `terraform apply`) |
+| CI | `ci.yml` | push to `main`, `develop`, `epic/*`; PRs (opened, synchronize, reopened) | one job, `Lint, test & SonarQube`: install, ruff, pytest with coverage, Sonar scan |
+| Terraform | `terraform.yml` | PR touching `infra/terraform/**` or `scripts/deploy.sh`; push to `main` touching those or anything in the image (`src/`, `docker/`, `main.py`, `pyproject.toml`, `uv.lock`); manual `workflow_dispatch` | `validate` (fmt, validate, tflint) → `apply` (build + push both images, then `terraform apply`), gated by the `apply` environment |
+| Bootstrap AWS | `bootstrap.yml` | manual, `main` only | creates the state bucket and the GitHub OIDC role, or repairs the role's trust policy |
+| Terraform destroy | `terraform-destroy.yml` | manual; type `destroy-aurum` to confirm | tears the stack down in the `destroy` environment, with an optional final RDS snapshot |
 
 ## 2. CI workflow
 
-### `python` job
-- `uv sync --locked --no-build --group modeling` (Python 3.12) — `--locked` fails the build on
-  `pyproject.toml` / `uv.lock` drift
-- **ruff** over `src/` and `main.py` — fails the build on lint errors
-- **pytest** over `tests/` — a hard gate since [#57](https://github.com/Analyst-Ninja/aurum/issues/57);
-  91 tests cover `src/modeling/`. The install step is `uv sync --locked --no-build --group modeling`,
-  because those tests import `lightgbm`, `pyarrow` and `scikit-learn`. `dbt` keeps its own group and
-  stays out — `dbt-core` pulls an sdist-only dependency that `--no-build` cannot install, while every
-  modeling dependency ships manylinux wheels
+One job, `Lint, test & SonarQube`, on `ubuntu-latest`. Actions are pinned by full commit SHA; the
+`GITHUB_TOKEN` is read-only.
 
-### `sonarqube` job (self-hosted SonarQube)
-- Runs after `python` passes; skipped on fork PRs (no secrets there)
-- `sonarsource/sonarqube-scan-action` with `fetch-depth: 0` (full history for new-code detection)
-- `sonarqube-quality-gate-action` **fails the build if the quality gate fails** — this is the enforcement point
-- Scanner config in `sonar-project.properties` (sources = `src/`, `main.py`; notebooks/docs/infra excluded)
+1. **Install** — `uv sync --locked --no-build --group modeling --group mcp --group paper --group backtesting`
+   (Python 3.12). `--locked` fails the build on `pyproject.toml` / `uv.lock` drift. The extra groups are
+   there because the tests import `lightgbm`, `pyarrow` and `scikit-learn` (modeling), the `mcp` SDK, `alpaca-py`
+   (paper) and backtrader / vectorbt (backtesting). `dbt` stays out: `dbt-core` pulls an sdist-only dependency
+   that `--no-build` cannot install, while every other dependency ships manylinux wheels. Lumibot is not
+   installed; its engine runs in a child process and its tests do not need the package.
+2. **Lint** — `ruff check src/ main.py`. A lint error fails the build.
+3. **Tests** — `pytest tests/ -v --cov=src --cov-report=xml`. A hard gate since
+   [#57](https://github.com/Analyst-Ninja/aurum/issues/57). Covers `src/ingestion`, `src/modeling`,
+   `src/inference`, `src/mcp`, `src/paper` and `src/utils`. dbt's own tests are not run in CI; they run in the
+   `aurum-dbt` task after every ingest.
+4. **Sonar scan** — `sonarqube-scan-action` against **SonarCloud** (org `analyst-ninja`, project
+   `Analyst-Ninja_aurum`, set in `sonar-project.properties`). Coverage must come from the same job, because the
+   scanner reads `coverage.xml` off the runner's filesystem. The quality gate is enforced as the *SonarCloud Code
+   Analysis* check on the PR (new-code coverage threshold 80%).
 
-**Required GitHub secrets:**
+Scanner scope: sources `src/` and `main.py`, tests in `tests/`, inclusions `src/**`; `docs/**`, `nbs/**` and the
+dbt SQL are excluded.
 
-| Secret | Value |
-|--------|-------|
-| `SONAR_HOST_URL` | URL of your SonarQube server |
-| `SONAR_TOKEN` | Project analysis token generated in SonarQube |
-
-⚠️ **Reachability:** GitHub-hosted runners must reach `SONAR_HOST_URL`. A SonarQube on `localhost` won't work from CI. Options, in order of preference:
-1. SonarQube on a small VPS / always-on box with a public URL (basic auth + HTTPS)
-2. Tunnel to your local server (e.g., Cloudflare Tunnel) exposing a stable hostname
-3. Fallback: run the scanner locally (`sonar-scanner` CLI) and keep CI's quality signal to ruff/pytest only
-
-Server bootstrap (local): `docker run -d --name sonarqube -p 9000:9000 sonarqube:community` → create project `aurum` → generate token.
+**Required GitHub secret:** `SONAR_TOKEN` (project analysis token). The scan is skipped on fork PRs, which have
+no secrets.
 
 ## 3. Terraform workflow
 
@@ -103,8 +100,11 @@ The original decision was "apply stays local", on two grounds that no longer hol
 
 **Destroy.** **Terraform destroy** is `workflow_dispatch` only, runs in the `destroy` environment (add required reviewers there) and needs `confirm` = `destroy-aurum`. `scripts/deploy.sh destroy` sets `allow_destroy=true`, which turns off RDS deletion protection and sets `force_delete` / `force_destroy` on ECR and the artifacts bucket; it applies those to the three resources, then runs `terraform destroy`. RDS data is lost unless `final_snapshot` names a snapshot. The state bucket and the bootstrap role survive, so a later push to `main` rebuilds everything. The MCP database role dies with RDS. Locally: `make tf-destroy FINAL_SNAPSHOT=aurum-final`.
 
-**Shipping code.** The `apply` job builds and pushes the image itself, so a merge to
-`main` that changes `src/` reaches Fargate without a local step:
+**Shipping code.** The `apply` job runs `scripts/deploy.sh apply`, which builds and pushes **two**
+images from `docker/aurum.Dockerfile` (the full image, tagged `<sha>`, and the slim MCP image built with
+`--target mcp`, tagged `mcp-<sha>`), so a merge to `main` that changes `src/` reaches Fargate and the MCP host
+without a local step. The script also creates the ECR repo first if it is missing and fails in CI if any of the
+four `TF_VAR_*` secrets (`db_password`, `sec_user_agent`, `alert_email`, `mcp_password`) is empty:
 
 1. **Resolve the tag** — the short SHA of the last commit that touched `pyproject.toml`,
    `uv.lock`, `src/`, `docker/` or `main.py`. Not HEAD: an infra-only commit must resolve
@@ -135,19 +135,17 @@ resolves forward).
 
 ## 4. Branch protection (recommended setup)
 
-On `main`: require PRs, require status checks `Lint & test`, `SonarQube analysis`, and `Format, validate, lint` (when infra changes) to pass before merge.
+On `main`: require PRs, and require the checks `Lint, test & SonarQube`, `SonarCloud Code Analysis` and
+`Format, validate, lint` (when infra changes) to pass before merge.
 
 ## 5. Future evolution
 
 | When | Change |
 |------|--------|
-| Coverage wanted | add `pytest --cov` and a coverage report → `sonar.python.coverage.reportPaths` |
-| dbt project lands | Add job: `dbt build` against a Snowflake CI schema, `sqlfluff` lint |
-| Docker images per component | Add build+push job (GHCR), compose pulls tagged images. The training
-image ([training-container.md](training-container.md)) is built locally for now — CI does not build or push it |
+| dbt in CI | Run `dbt build` against a throwaway Postgres schema, plus `sqlfluff` lint. Today dbt's tests run only on AWS after ingest |
+| Image checks | The images are built in the `apply` job, only on merge to `main`. A PR build with `docker build` would catch Dockerfile breakage before merge |
 | ~~Infra grows past local~~ | ~~Revisit: remote state + apply from CI~~ — **done** (GH-84): state is S3, apply runs on merge to `main` via OIDC. See §3. |
 
 ---
 
-*Decisions (user-confirmed 2026-07-12): self-hosted SonarQube (not SonarCloud); Terraform CI = validate/lint only, apply stays local.*
-*Amended 2026-09-07 (GH-84): apply now runs in CI on merge to `main`. Both premises behind "apply stays local" had expired — see §3.*
+*History: the 2026-07-12 version chose a self-hosted SonarQube and "Terraform CI = validate/lint only, apply stays local". Both changed: Sonar runs on SonarCloud, and apply moved to CI on merge to `main` (GH-84, 2026-09-07) — see §3. Updated again 2026-10-25 for the four-workflow layout and the extra dependency groups.*

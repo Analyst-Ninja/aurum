@@ -1,7 +1,8 @@
 # SHAP feature selection — the producer side of the loop
 
-> **Design — not yet built.** Specifies `src/modeling/explain/`, implemented under
-> [#55](https://github.com/Analyst-Ninja/aurum/issues/55).
+> **Built.** `src/modeling/explain/` (`shap_report.py`, `seed_writer.py`), implemented under
+> [#55](https://github.com/Analyst-Ninja/aurum/issues/55) and run by `select-features` in the monthly
+> train task.
 >
 > This is the **producer**. The consumer — the seed file's schema, why it is a seed rather than a
 > table, and how `mart_feature_summary` reads it — is
@@ -21,7 +22,7 @@ Contents:
 
 ---
 
-## 1. The loop, and which half is missing
+## 1. The loop
 
 ```
 mart_training_set ──train──▶ model ──SHAP──▶ ranking ──▶ seeds/selected_features.csv
@@ -31,23 +32,14 @@ mart_training_set ──train──▶ model ──SHAP──▶ ranking ──�
         └──────── retrain on narrowed set ◀──── gold.mart_feature_summary
 ```
 
-**The right half exists.** `mart_feature_summary` is built, tested and shipped. It reads the seed,
-intersects the requested names against `mart_training_set`'s real columns, and projects them
-alongside a fixed key set. It has a fallback to the full panel if nothing matches.
+**Both halves exist.** `mart_feature_summary` reads the seed, intersects the requested names
+against `mart_training_set`'s real columns, and projects them alongside a fixed key set, with a
+fallback to the full panel if nothing matches. The left half, `select-features`, writes the seed
+from a real SHAP ranking: `seeds/selected_features.csv` was a single `ret_21d` placeholder row until
+2026-09-05 and now holds one row per ranked feature (`model_version` of the run that wrote it).
+`mean_abs_shap` is the ranking statistic; the mart does not read it.
 
-**The left half does not.** `seeds/selected_features.csv` holds a single placeholder row written in
-Phase 0 purely so the model would compile:
-
-```csv
-feature_name,rank,mean_abs_shap,selected,model_version
-ret_21d,1,0.0,true,placeholder
-```
-
-`ret_21d` was chosen because it needs only price history and would therefore survive every
-subsequent phase's renames. `mean_abs_shap = 0.0` is honest — no SHAP value has ever been computed
-in this repo — and the mart does not read that column anyway.
-
-This document specifies what replaces it.
+The sections below specify what writes the seed and why it is shaped that way.
 
 ---
 
@@ -62,11 +54,13 @@ gap between that prediction and the baseline.
 Averaging the absolute SHAP value of a feature across many rows gives **mean |SHAP|**: a magnitude
 of influence, in the units of the prediction. That is the ranking statistic.
 
-Why it matters that the model is a tree: `shap.TreeExplainer` computes these values **exactly**, in
+Why it matters that the model is a tree: TreeSHAP computes these values **exactly**, in
 polynomial time. For any other model class you would use KernelSHAP, which is a sampling
 approximation and orders of magnitude slower over 200+ columns. The GOLD layer's design already
 assumes tree SHAP; this is one of the reasons LightGBM is the model
 ([`modeling-design.md`](modeling-design.md) §3).
+
+The code uses LightGBM's own `booster.predict(pred_contrib=True)`, which is TreeSHAP; the separate `shap` package is not a dependency (see `src/modeling/explain/shap_report.py`).
 
 ---
 

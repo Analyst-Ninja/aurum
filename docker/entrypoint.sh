@@ -1,5 +1,5 @@
 #!/bin/sh
-# One image, three workloads. The first argument picks which CLI runs; everything after
+# One image, four workloads. The first argument picks which CLI runs; everything after
 # it is passed through untouched.
 #
 #   ingest -c src/ingestion/configs/yahoo/ohlcv_1d.yaml -f False

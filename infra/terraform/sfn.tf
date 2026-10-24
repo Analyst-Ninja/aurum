@@ -2,7 +2,7 @@
 #
 # The task definitions in tasks.tf already encode a complete logical workflow in their
 # `command` — market ingest runs both Yahoo feeds, EDGAR truncates and loads all six
-# statement configs, dbt seeds and builds, train runs the whole eight-step modelling loop.
+# statement configs, dbt seeds and builds, train runs the whole modelling loop (eleven chained commands).
 # So each state machine is one or two states, not the ten the original plan described.
 #
 # The trade: a failure at modelling step 7 of 8 restarts from step 1, and diagnosis means
@@ -18,7 +18,7 @@
 #
 # dbt and train stay separate states on purpose. A dbt failure must never reach train —
 # training on a half-built mart_features produces a model that looks fine and is not — and
-# there is no reason to start a 4 vCPU / 16 GB task to discover dbt is broken.
+# there is no reason to start an 8 vCPU / 32 GB task to discover dbt is broken.
 
 locals {
   # Without AssignPublicIp there is no route to ECR: this deployment has an internet
@@ -300,7 +300,7 @@ resource "aws_sfn_state_machine" "semimonthly_edgar" {
         ResultPath     = null
         Next           = "Dbt"
       }
-      # The same aurum-dbt task definition the daily machine uses — seed, build, 237 tests.
+      # The same aurum-dbt task definition the daily machine uses — seed, build, all tests.
       # Not a reduced `dbt run`: this is the build that lands two weeks of fundamentals, so
       # it is the one that most needs the tests.
       #

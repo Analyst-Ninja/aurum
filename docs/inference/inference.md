@@ -1,7 +1,7 @@
 # Inference — BUY / SELL / HOLD from the newest trained model
 
 `src/inference/` turns the latest trained run into a daily decision list. Tracked in
-[#97](https://github.com/Analyst-Ninja/aurum/issues/97). **Decisions are emitted, never traded.**
+[#97](https://github.com/Analyst-Ninja/aurum/issues/97). **Decisions are emitted, never traded by this module.** The separate [`src/paper`](../paper/paper-trading.md) module can turn them into Alpaca *paper* orders; AURUM never trades real money.
 
 ## What a decision means
 

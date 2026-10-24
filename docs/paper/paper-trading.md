@@ -1,6 +1,8 @@
 # Paper trading and Alpaca-data backtest
 
-Forward-tests the inference decisions with simulated money. Code in `src/paper/`, config in `src/paper/configs/default.yaml`, tracked in GH-101.
+Forward-tests the inference decisions with simulated money. Code in `src/paper/`, config in `src/paper/configs/default.yaml`, tracked in GH-101 (PR #102).
+
+**Paper money only.** AURUM never trades real money. `AlpacaBroker` talks to Alpaca's *paper* environment, and decisions from [`inference`](../inference/inference.md) remain advice. This module is the one place that turns them into (simulated) orders. It is not scheduled on AWS: run `rebalance` yourself, once a day after the dbt build.
 
 ## Setup
 1. Free Alpaca paper account; add `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` to `.env`.
@@ -30,6 +32,48 @@ uv run --group modeling --group paper --group backtesting python -m src.paper.cl
 - **Book.** Each day's decile-10 long / decile-1 short book is one vintage. Target = average of the last `horizon` (5) vintages, so capital ramps in at 1/5 a day, as in `inference replay`. `long_only: true` drops the short leg.
 - **Orders.** Whole-share market orders, `client_order_id = {asof}-{symbol}`, so a repeat run is a no-op.
 - **Backtest.** Same code, `SimBroker` fills at the open bar of the session after each decision (past `execution_time`), minus `cost_bps`; bars come from Alpaca historical data (IEX feed, cached under `data/paper/bars/`).
+
+## Modules
+
+| Module | Job |
+|---|---|
+| `cli.py` | `rebalance`, `snapshot`, `report`, `backtest`, `crosscheck` |
+| `config.py` | `PaperConfig`, loaded from one YAML; secrets are env-var *names* (`ALPACA_API_KEY`, `ALPACA_SECRET_KEY`) |
+| `book.py` | Pure pandas: decisions → daily book → target weights → orders. No broker, no I/O |
+| `broker.py` | `AlpacaBroker` (live paper) and `SimBroker` (backtest). `rebalance` and `backtest` share `book.py` and `report.py`, so a backtest exercises the same order maths as a live run |
+| `live.py` | `rebalance` (score, move toward the target), `snapshot` (mark to market), `watch` (loop) |
+| `ledger.py` | Audit trail of decisions, orders and snapshots. SQLAlchemy URL from config: SQLite (`data/paper/ledger.db`) by default, Postgres works unchanged. Alpaca stays the source of truth for fills; the ledger records what we asked for |
+| `report.py` | Equity curve → weekly / monthly / quarterly / yearly P&L tables and summary |
+| `backtest.py` | Replays the holdout through `SimBroker` on Alpaca historical bars |
+| `backtesting/` | `runner`, `compare`, `inputs`, `output`, plus one adapter per engine |
+| `symbols.py` | Ticker spelling: the warehouse (Yahoo) writes `BF-B`, Alpaca `BF.B` |
+
+## Config keys (`default.yaml`)
+
+`capital` (100000), `long_only` (false = dollar-neutral), `leg_exposure` (0.5 per leg), `horizon` (5 daily books
+averaged), `rebalance_every_n_days`, `snapshot_interval_min` (30, marks only), `min_order_usd` (50), `cost_bps`
+(5, SimBroker only), `execution_time` (09:35 New York), `bar_interval` (30Min), `benchmark` (SPY),
+`report_periods`, `model_version` (`latest-narrow`) and `model_config`, `ledger_url`, `out_dir`, the two Alpaca
+env-var names, and `feed` (`iex`). Only `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` are read from the
+environment; no base-URL variable is used.
+
+## Engines
+
+| Engine | Runs | Notes |
+|---|---|---|
+| sim (`SimBroker`) | in process | the reference; fills at the open bar of the submit session, minus `cost_bps` |
+| vectorbt | in process (`backtesting` group) | |
+| backtrader | in process (`backtesting` group) | on 30-minute bars: 50 largest-weight names plus SPY |
+| Lumibot | child process, not in any dependency group | daily bars only; see above |
+
+## Safety and limits
+
+- Paper account only; there is no live-money code path.
+- Idempotent orders (`client_order_id = {asof}-{symbol}`) so a re-run the same day sends nothing new.
+- `rebalance --dry-run` shows the orders and sends none; `--force` re-runs a day already traded.
+- The model's `latest-narrow` symlink must exist (it is created by the narrowed train run).
+- No reconciliation job, kill switch or risk limits beyond `min_order_usd` and `leg_exposure`. Do not extend this
+  to real money without adding them.
 
 ## Caveats
 - Holdout IC is 0.007; short-period P&L is noise. Judge on months, not weeks.

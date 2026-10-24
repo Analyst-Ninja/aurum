@@ -15,8 +15,7 @@ HOST=localhost
 PORT=5432
 AURUM_USERNAME=...
 AURUM_PASSWORD=...
-ALPACA_API_BASE_URL=...                      # step 8 only
-ALPACA_API_KEY=...
+ALPACA_API_KEY=...                           # step 8 only (paper account)
 ALPACA_SECRET_KEY=...
 ```
 
@@ -67,7 +66,7 @@ done
 
 ```bash
 A dbt seed
-A dbt build        # bronze → silver → gold, 237 tests
+A dbt build        # bronze → silver → gold, with all dbt tests
 ```
 
 ## 5. Train, evaluate, rank features

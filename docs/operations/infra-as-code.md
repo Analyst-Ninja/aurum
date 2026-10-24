@@ -1,187 +1,141 @@
 # AURUM — Infrastructure as Code (Terraform)
 
-**Version:** 1.0
-**Date:** 2026-07-12
-**Status:** Design approved — **§1 partly superseded by
-[`../infra/aws-deployment-plan.md`](../infra/aws-deployment-plan.md)** (epic
-[#71](https://github.com/Analyst-Ninja/aurum/issues/71)); see the note in §1
-**Parent spec:** [TECHNICAL_SPEC.md](../architecture/TECHNICAL_SPEC.md)
+**Version:** 2.0
+**Updated:** 2026-10-25
+**Status:** Built and deployed. Rewritten from the 2026-07-12 design, which planned Snowflake, Kafka and
+Postgres modules that were never built (kept short in §8).
+**Related:** [`../infra/aws-deployment-plan.md`](../infra/aws-deployment-plan.md) (what runs and why) ·
+[`cicd.md`](cicd.md) (how it ships) · [`../security/risks.md`](../security/risks.md)
 
 ---
 
-## 1. Purpose & Scope
+## 1. What Terraform manages
 
-Terraform manages AURUM's **declarative, stateful infrastructure**; docker-compose keeps running the **processes**. Hybrid split:
+Everything AURUM runs on, in AWS `us-east-1`, in two independent roots:
 
-| Layer | Managed by | Why |
-|-------|-----------|-----|
-| Snowflake account objects (database, schemas, warehouse, roles, grants, service users) | **Terraform** | Stateful, security-sensitive, painful to rebuild by hand |
-| Kafka topics (partitions, retention) | **Terraform** | Declarative config that drifts silently when created ad hoc |
-| Postgres database, schemas, roles, grants | **Terraform** | Same — schema/permission state, not process |
-| Kafka broker, Postgres server, Airflow (containers) | docker-compose (`infra/docker-compose.yml`) | Runtime processes; dev loop needs fast restarts |
-| Table DDL inside Snowflake (RAW tables, marts) | Airflow (RAW) + dbt (SILVER/GOLD) | Data-layer schema belongs to the pipeline, not TF |
-| Landing table DDL in Postgres | App migrations (SQL files applied by consumers/Airflow) | Same reasoning |
-| EDGAR producer host | ~~Local machine, no IaC~~ **ECS Fargate** | ~~SEC blocks cloud IPs — this stays a local process by design~~ **Measured false, 2026-09-06 — see the note below** |
+| Root | Path | State key | Purpose |
+|---|---|---|---|
+| Main stack | `infra/terraform/` | `aurum/terraform.tfstate` | the whole footprint below |
+| Bootstrap | `infra/terraform/bootstrap/` | `aurum/bootstrap.tfstate` | GitHub OIDC provider + the `aurum-github-actions` role |
 
-~~**Non-goals:** no cloud provider (no AWS/GCP footprint in v2), no Kubernetes, no TF-managed
-containers, no CI pipeline yet (single operator).~~
+The bootstrap root is separate on purpose: destroying the main stack must never delete the role the
+destroy run is using.
 
-> ### Superseded, 2026-09-06
->
-> Two statements above are no longer true. They are struck through rather than deleted, because
-> the reasoning that produced them is still worth reading.
->
-> **"No cloud provider."** AURUM now deploys to AWS — RDS Postgres, one image on ECR run as ECS
-> Fargate tasks, Step Functions schedules, all under Terraform in `infra/terraform/`. See
-> [`../infra/aws-deployment-plan.md`](../infra/aws-deployment-plan.md), epic
-> [#71](https://github.com/Analyst-Ninja/aurum/issues/71).
->
-> **"SEC blocks cloud IPs."** This was never measured, and it is wrong for this deployment.
-> Probed from a Fargate task in `us-east-1` on 2026-09-06, egress IP `32.198.113.156`, with the
-> honest `SEC_USER_AGENT` from SSM:
->
-> | Endpoint | Status |
-> |---|---|
-> | `www.sec.gov/cgi-bin/browse-edgar` | **200**, 16,501 bytes |
-> | `data.sec.gov/submissions/CIK0000320193.json` | **200**, 164,121 bytes |
-> | `data.sec.gov/api/xbrl/companyconcept/...` | **200**, 2,252 bytes |
->
-> What SEC actually enforces is the honest `User-Agent` and the 10 req/s cap, both of which the
-> ingestion framework already respects. EDGAR ingestion therefore runs on ECS on a schedule like
-> everything else — `aurum-semimonthly-edgar`, `cron(0 6 1,15 * ? *)`.
->
-> The rest of this document — the Snowflake, Kafka and Postgres module design — describes a
-> target that has not been built and is not part of epic #71.
+State lives in S3 bucket `aurum-tfstate-851459781998` (versioned, encrypted) with native locking
+(`use_lockfile`, Terraform >= 1.10) — no DynamoDB table. The provider is `hashicorp/aws ~> 6.0`, and every
+resource gets default tags `Project=aurum`, `ManagedBy=terraform`.
 
-## 2. Layout
+Not managed by Terraform: the state bucket itself (created by `scripts/deploy.sh bootstrap`), the **MCP
+read-only Postgres role** (the AWS provider has no Postgres-role resource and CI cannot reach RDS; see
+[`cicd.md`](cicd.md) §3), and table DDL, which belongs to ingestion and dbt.
 
-```
-infra/
-├── docker-compose.yml            # runtime: kafka, postgres, airflow (unchanged)
-└── terraform/
-    ├── versions.tf               # terraform + provider version pins
-    ├── providers.tf              # provider configs (aliased where needed)
-    ├── variables.tf              # inputs (no defaults for secrets)
-    ├── main.tf                   # module wiring
-    ├── outputs.tf                # connection strings, role names
-    ├── terraform.tfvars.example  # committed template — real tfvars gitignored
-    ├── modules/
-    │   ├── snowflake/            # database, schemas, warehouse, roles, users, grants
-    │   ├── kafka/                # topics
-    │   └── postgres/             # db, schemas, roles, grants
-    └── .gitignore                # *.tfstate*, *.tfvars, .terraform/
-```
+## 2. File map (`infra/terraform/`)
 
-## 3. Providers
+| File | Contents |
+|---|---|
+| `versions.tf` | Terraform and provider pins, S3 backend, default tags |
+| `variables.tf` | Every input and default (see §4) |
+| `main.tf` | Default VPC and subnets, security groups, ECR repo + lifecycle policy, EFS + access points, S3 artifacts bucket, ECS cluster, CloudWatch log group, SSM parameters, SNS topic + email subscription, budget |
+| `rds.tf` | Postgres 17 instance, subnet group, parameter group |
+| `tasks.tf` | IAM roles and the four ECS task definitions (`aurum-ingest-market`, `aurum-ingest-edgar`, `aurum-dbt`, `aurum-train`) |
+| `sfn.tf` | The three Step Functions state machines, their IAM role, and the three EventBridge Scheduler schedules |
+| `mcp_host.tf`, `mcp_host.tftpl` | The optional MCP host: `t3.micro` EC2, instance profile, security group, systemd unit (`mcp_enabled`) |
+| `outputs.tf` | Endpoints and ready-made commands, including `mcp_port_forward_command` |
+| `terraform.tfvars.example` | Template for the gitignored `terraform.tfvars` (local deploys only) |
+| `bootstrap/` | `github_oidc.tf`, `variables.tf`, `outputs.tf`, `versions.tf` |
 
-| Provider | Source | Manages |
-|----------|--------|---------|
-| Snowflake | `snowflakedb/snowflake` | All Snowflake account objects |
-| Kafka | `Mongey/kafka` | Topics on the compose broker (`localhost:9092`) |
-| PostgreSQL | `cyrilgdn/postgresql` | DB/schemas/roles on the compose Postgres (`localhost:5432`) |
+## 3. Resources
 
-Version-pin all three in `versions.tf` (`required_providers` with `~>` constraints); pin `required_version` for Terraform itself.
+- **Network.** The default VPC, one subnet per AZ, no NAT: tasks take a public IP. Two security groups —
+  `tasks` (no ingress) and `data` (5432 from the tasks and the MCP host, 2049 from the tasks, plus a rule from
+  `db_ingress_cidrs`).
+- **RDS.** Postgres 17, `db.m7g.large`, 100 GB gp3, encrypted, single-AZ, 7-day backups, publicly accessible by
+  default, deletion protection tied to `allow_destroy`. A parameter group sets `work_mem`,
+  `maintenance_work_mem`, `random_page_cost`. The non-burstable class is deliberate: a `t4g.micro` ran out of CPU
+  credits during the first backfill.
+- **ECR.** One repo, `aurum`, `IMMUTABLE`, scan on push. Lifecycle keeps the last 3 `mcp-` images and the last 3
+  of everything else.
+- **ECS.** Cluster `aurum` (Fargate), four task definitions that share one image and mount EFS at `/app/models`
+  and `/app/data`. Logs go to `/ecs/aurum` (7-day retention).
 
-## 4. Resources per Module
+  | Task | vCPU / memory | Command |
+  |---|---|---|
+  | `aurum-ingest-market` | 2 / 8 GB | `ohlcv_1d` then `ohlcv_1min`, `-f False` |
+  | `aurum-ingest-edgar` | 1 / 4 GB | six EDGAR configs, each truncate then load |
+  | `aurum-dbt` | 2 / 4 GB | `dbt seed && dbt build` |
+  | `aurum-train` | 8 / 32 GB | train, evaluate, select-features, dbt seed + narrow mart, narrowed train, evaluate, compare, backtest, export x2 |
+- **Step Functions + Scheduler.** `aurum-daily-market` (`cron(30 22 ? * MON-FRI *)`), `aurum-semimonthly-edgar`
+  (`cron(0 6 1,15 * ? *)`), `aurum-monthly-train` (`cron(0 12 1 * ? *)`), all UTC. Each ECS state is
+  `ecs:runTask.sync`; a Catch publishes to SNS and then ends in a `Fail` state. Retries: market and dbt 2, EDGAR 1,
+  train none. Timeouts 5400 s, train 10800 s. Details and rationale:
+  [`../infra/aws-deployment-plan.md`](../infra/aws-deployment-plan.md).
+- **EFS.** Encrypted, IA after 7 days, access points `/aurum/models` and `/aurum/data` (uid/gid 1000), a mount
+  target per AZ.
+- **S3.** `aurum-artifacts-<account>`: private, AES256, 365-day expiry. The task role can only `PutObject`
+  (the `export` step); the MCP host can read `runs/*`.
+- **Secrets.** SSM parameters `db_username`, `db_password`, `sec_user_agent`, and with the MCP host
+  `mcp_username`, `mcp_password`.
+- **Alerts and cost.** SNS topic `aurum-alerts` with an email subscription (confirm the first email), and a
+  monthly budget (`monthly_budget_usd`, default 150). There are no CloudWatch alarms.
+- **MCP host.** `t3.micro` on AL2023, runs the slim `mcp-<sha>` image under systemd on loopback `:8000`, no
+  ingress, reached by SSM port-forward. Read-only Postgres role, schemas `gold,silver`.
+- **Bootstrap root.** OIDC provider for GitHub, role `aurum-github-actions` with `AdministratorAccess`. The trust
+  policy allows exactly three subjects: `ref:refs/heads/main`, `environment:apply`, `environment:destroy`.
 
-### 4.1 `modules/snowflake`
+## 4. Variables worth knowing
 
-| Resource | Name | Notes |
-|----------|------|-------|
-| Database | `AURUM` | |
-| Schemas | `RAW`, `SILVER`, `GOLD`, `META` | META holds load bookkeeping if warehouse-side state needed |
-| Warehouse | `COMPUTE_WH` | `XSMALL`, `auto_suspend = 60`, `auto_resume = true`, `initially_suspended = true` — cost guard |
-| Roles | `AURUM_LOADER` | Airflow: INSERT/CREATE on RAW |
-| | `AURUM_TRANSFORMER` | dbt: full on SILVER/GOLD, read RAW |
-| | `AURUM_ML` | training + inference: read GOLD |
-| | `AURUM_MCP_READONLY` | FastMCP: **SELECT-only on GOLD** — enforces the spec's read-only guarantee at the warehouse, not just app code |
-| Service users | `SVC_AIRFLOW`, `SVC_DBT`, `SVC_ML`, `SVC_MCP` | One per component, **key-pair auth** (RSA), no passwords |
-| Grants | role → schema/warehouse/future-tables | Future grants so dbt-created tables inherit permissions |
+| Variable | Default | Note |
+|---|---|---|
+| `image_tag`, `mcp_image_tag` | none | No default on purpose: the repo is immutable, so a floating tag never exists. `deploy.sh` sets both from the commit SHA |
+| `db_instance_class` | `db.m7g.large` | single largest cost line; the default is what a recreate falls back to |
+| `db_publicly_accessible` | `true` | with `db_ingress_cidrs` default `["0.0.0.0/0"]`; see the security review |
+| `db_allocated_storage` / `db_max_allocated_storage` | 100 / 100 | |
+| `monthly_budget_usd` | 150 | |
+| `artifact_retention_days` | 365 | |
+| `mcp_enabled` | `true` | `false` removes the EC2 host |
+| `allow_destroy` | `false` | `true` drops RDS deletion protection and enables force-delete on ECR and the artifacts bucket |
+| `final_snapshot_identifier` | empty | empty means destroying RDS loses the data |
+| `alert_email`, `db_password`, `sec_user_agent`, `mcp_password` | secrets / no default | passed as `TF_VAR_*`, never `-var` |
 
-### 4.2 `modules/kafka`
+## 5. Workflow
 
-Topics per the parent spec (§3.2):
+Everything goes through **`scripts/deploy.sh`**, so a local deploy and a CI deploy run the same steps. The
+Makefile wraps it.
 
-| Topic | Partitions | Retention | Config |
-|-------|-----------|-----------|--------|
-| `market.ohlcv.1m` | 6 | 7 days | keyed by ticker |
-| `edgar.filings` | 3 | 30 days | keyed by cik |
-| `news.sentiment` | 3 | 7 days | keyed by ticker |
+| Command | Make target | What it does |
+|---|---|---|
+| `deploy.sh bootstrap` | `make tf-bootstrap` | create the state bucket if missing, import an existing OIDC provider / role, apply the bootstrap root |
+| `deploy.sh plan` | `make tf-plan` | `terraform plan` of the main stack, no image build |
+| `deploy.sh apply` | `make tf-apply` | create ECR if absent → push the app image and `mcp-` image if their tags are missing → full apply |
+| `deploy.sh destroy` | `make tf-destroy [FINAL_SNAPSHOT=name]` | apply `allow_destroy=true` to the guarded resources, then `terraform destroy` |
+| (docker only) | `make build`, `login`, `push`, `print-tag` | build / push the app image by hand; `push` is the rollback path |
 
-Single compose broker → `replication_factor = 1` everywhere.
+In CI, `terraform.yml` runs `validate` on PRs and pushes, and `apply` on merge to `main` behind a
+reviewer-gated environment, authenticating with GitHub OIDC. A cold account needs one-time keys for
+**Bootstrap AWS**. The full procedure, secrets, OIDC repair and destroy flow are in [`cicd.md`](cicd.md) §3.
 
-### 4.3 `modules/postgres`
+`terraform.tfvars` (local secrets) and any `tfplan` file are gitignored.
 
-| Resource | Name | Notes |
-|----------|------|-------|
-| Database | `aurum` | |
-| Schemas | `landing`, `meta` | Per parent spec §3.3, §3.5 |
-| Roles | `consumer_writer` | INSERT on `landing.*` |
-| | `airflow_loader` | SELECT on `landing.*`, ALL on `meta.*` (watermarks) |
-| | `inference_writer` | INSERT on `landing.decisions` |
-| Grants | default privileges per schema | So future landing tables inherit |
+## 6. Why the SEC egress question mattered
 
-## 5. State & Secrets
+The original design said EDGAR could not run in the cloud because "SEC blocks cloud IPs". That was never
+measured. Probed from a Fargate task in `us-east-1` on 2026-09-06 with the honest `SEC_USER_AGENT` from SSM,
+`www.sec.gov/cgi-bin/browse-edgar`, `data.sec.gov/submissions/...` and `data.sec.gov/api/xbrl/...` all returned
+**200**. What SEC enforces is the honest `User-Agent` and the 10 req/s cap, both of which the ingestion
+framework respects, so EDGAR runs on ECS on a schedule like everything else.
 
-- **State:** ~~local `terraform.tfstate`, gitignored~~ — **superseded.** State lives in S3 (`infra/terraform/versions.tf`): bucket `aurum-tfstate-851459781998`, key `aurum/terraform.tfstate`, `encrypt = true`, `use_lockfile = true` for native S3 locking (no DynamoDB table). The migration this bullet described as "later" has happened.
-- **Secrets:** never in `.tf` files or committed tfvars.
-  - Provider credentials via environment: `SNOWFLAKE_*`, `TF_VAR_postgres_admin_password`, etc.
-  - Snowflake service users authenticate by **RSA key pair** — public key in TF, private keys stay in local files referenced by each component's env.
-  - ⚠️ **State contains secrets anyway** (provider attributes land in state) — and state is no longer local, so the "local + gitignored contains the blast radius" argument is gone. `db_password` and `sec_user_agent` now sit in an S3 object. The re-check this bullet demanded before any move to remote state was never done; what stands in for it today is bucket-level: `encrypt = true`, and the bucket must stay private with public access blocked and versioning on. Anyone who can read that object holds the database password.
-  - The same object is now reachable from CI: the Terraform apply job assumes `aurum-github-actions` on every push to `main` (cicd.md §3). The blast radius of a compromised `main` is the whole account.
+## 7. Cost and security notes
 
-## 6. Workflow
+- RDS (`db.m7g.large`) is the biggest line, roughly $118 a month; the budget guardrail defaults to $150.
+- `db_ingress_cidrs = ["0.0.0.0/0"]` on a publicly accessible RDS is a convenience default for a single
+  operator. Narrow it to your own addresses; see [`../security/risks.md`](../security/risks.md).
+- The MCP HTTP transport has no authentication of its own. Its only protection is network: loopback bind, no
+  security-group ingress, SSM access gated by IAM.
 
-```bash
-# 0. runtime up first — TF needs live endpoints for kafka/postgres providers
-docker compose -f infra/docker-compose.yml up -d
+## 8. Not built: the original plan
 
-# 1. bootstrap
-cd infra/terraform
-cp terraform.tfvars.example terraform.tfvars   # fill in
-terraform init
-terraform plan
-terraform apply
-
-# 2. day-2: any topic/role/schema change goes through TF
-terraform plan   # review drift before every apply
-```
-
-**Ordering constraint:** `kafka` and `postgres` modules require the compose stack up; `snowflake` module is independent (cloud API). Modules have no cross-dependencies — `-target` works if compose is down.
-
-**Drift & import:** existing hand-made objects (e.g., a manually created `AURUM` database) get `terraform import` rather than recreate. Anything not in TF that TF owns by this spec = drift, fix in TF.
-
-## 7. Dependency Diagram
-
-```mermaid
-flowchart TD
-    TF["terraform apply"]
-    subgraph local [Local machine — docker-compose]
-        KB[["Kafka broker"]]
-        PGS[("Postgres server")]
-        AF["Airflow"]
-    end
-    subgraph tfmanaged [Terraform-managed]
-        TOP["kafka module<br/>3 topics"]
-        PGM["postgres module<br/>db, schemas, roles"]
-        SFM["snowflake module<br/>DB, WH, roles, svc users"]
-    end
-    SF["Snowflake account"]
-    TF --> TOP --> KB
-    TF --> PGM --> PGS
-    TF --> SFM --> SF
-    AF -.->|"uses SVC_AIRFLOW,<br/>airflow_loader"| SFM
-```
-
-## 8. Build-Phase Impact
-
-Extends parent spec Phase 0 (infra bootstrap): compose up → `terraform apply` → verify with `terraform plan` (empty diff) + smoke queries. Adds ~0.5d to Phase 0.
-
-## 9. Open Questions
-
-1. **Kafka provider vs init script** — `Mongey/kafka` is community-maintained; fallback is a compose-side topic-init container. Decide at Phase 0 if provider proves flaky.
-2. **Snowflake provider resource coverage** — `snowflakedb/snowflake` provider evolves fast; verify grant resources against current provider version before writing modules.
-
----
-
-*Scope decisions (user-confirmed 2026-07-12): hybrid split (TF = stateful objects, compose = processes), local gitignored state.*
+The 2026-07-12 design planned Terraform modules for Snowflake (database, schemas, warehouse, roles, grants),
+Kafka topics, and Postgres roles and grants, with docker-compose running the Kafka, Postgres and Airflow
+containers. None of it exists: there is no Snowflake provider, no Kafka and no `infra/docker-compose.yml`. If
+Kafka or Snowflake land, they would add modules to the main root in the same style; the earlier layout and
+dependency diagram are in git history (this file before 2026-10-25).

@@ -328,9 +328,21 @@ You touch one datasource file, one feed file, one YAML, and one import line — 
 
 Worth knowing before you build on this:
 
-- `datasources/api/edgar/income_stmts.py` is superseded by `financial_stmts.py` and is not imported
-  by `runner.py`, so its `edgar_income_stmts` type never lands in the registry.
 - `Database.write_data` appends with `to_sql`, so the MD5 key is computed but **not** enforced as a
   constraint — re-running the same window duplicates rows. Idempotent upsert is still to be built.
 - `src/ingestion/schema/` is empty; there is no schema validation layer yet.
-- There are no tests for any of this (`tests/` is empty, and CI's pytest step is commented out).
+- Ingestion has a unit-test suite under `tests/ingestion/`, and CI runs it. It does not hit the network.
+
+### Skipping fresh tables and emptying before a reload
+
+Because the sink appends and the EDGAR configs reload everything, two small modules make a re-run safe:
+
+- `src/ingestion/freshness.py` — a config with `min_refresh_gap_days` (the six EDGAR configs set `10`) is checked
+  before any fetch. It reads `MAX("RUN_DATE")` from the landing table; if the gap to `run_date` is smaller than the
+  threshold, the feed returns `execution_status="SKIPPED_FRESH"`, `row_count=0` and **exits 0** (the CLI exits
+  non-zero only on `FAILED`). A missing, empty or unparseable table counts as stale, so a first load is never gated.
+  Market configs omit the key and are never gated.
+- `src/ingestion/truncate.py` — `python -m src.ingestion.truncate -c <config> [-d RUN_DATE]` empties one feed's landing
+  table, applying the same staleness check first (an ungated truncate would reset the value the gate measures). The
+  AWS EDGAR task runs it per config, immediately before that config's load, so a failure halfway leaves one table
+  empty rather than six.
