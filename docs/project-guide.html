@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}</style>
+<title>AURUM Docs</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky top bar, left nav grouped by task, one long reading column with diagrams inline. */
+:root{
+  --bg:#ffffff; --subtle:#fafafa; --fg:#171717; --muted:#666666; --line:#e6e6e6;
+  --accent:#2457d6; --accent-soft:#eef3fe; --code:#f4f4f5; --codefg:#1f1f23;
+  --sans:"Geist",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"Geist Mono",ui-monospace,Menlo,monospace;
+  /* one hue per stage, reused in the diagram, nav dots, section markers and stat cards */
+  --c-ingest:#2563eb; --c-wh:#7c3aed; --c-mod:#ea580c; --c-srv:#db2777; --c-pap:#b8860b;
+}
+:root{color-scheme:light}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--fg);font:15px/1.65 var(--sans);-webkit-font-smoothing:antialiased;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:30}
+a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--bg);border-bottom:1px solid var(--line);
+  margin-inline:calc(-1 * max(16px,env(safe-area-inset-left,0px)));padding-inline:max(16px,env(safe-area-inset-left,0px));
+  height:52px;display:flex;align-items:center;gap:14px}
+.logo{font-weight:700;letter-spacing:.14em;font-size:15px}
+.crumb{color:var(--muted);font-size:14px}
+.sp{flex:1}
+.btn{all:unset;cursor:pointer;font-size:13px;color:var(--muted);padding:6px 10px;border:1px solid var(--line);border-radius:6px}
+.btn:hover{color:var(--fg);border-color:var(--muted)}
+#menu{display:none}
+
+.wrap{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:220px minmax(0,1fr);gap:56px}
+aside{position:sticky;top:calc(52px + env(safe-area-inset-top,0px));align-self:start;height:calc(100vh - 52px);overflow-y:auto;padding:28px 0 40px}
+aside h4{font:500 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:22px 0 6px}
+aside h4:first-child{margin-top:0}
+aside a{display:block;color:var(--muted);font-size:14px;padding:4px 10px;margin-left:-10px;border-radius:5px}
+aside a:hover{color:var(--fg);text-decoration:none}
+aside a.on{color:var(--accent);background:var(--accent-soft);font-weight:500}
+
+main{min-width:0;padding:44px 0 96px}
+section{padding-top:8px;margin-bottom:56px;scroll-margin-top:76px}
+h1{font-size:clamp(30px,4.6vw,42px);line-height:1.12;letter-spacing:-.025em;font-weight:700;margin:0 0 14px;text-wrap:balance}
+h2{font-size:24px;letter-spacing:-.015em;font-weight:650;margin:0 0 12px;padding-top:28px;border-top:1px solid var(--line);text-wrap:balance}
+section:first-of-type h2{border:0;padding-top:0}
+h3{font-size:16px;font-weight:600;margin:28px 0 8px}
+p{max-width:66ch;margin:0 0 14px}
+.lede{font-size:18px;line-height:1.55;color:var(--muted);max-width:60ch}
+ul,ol{max-width:68ch;padding-left:20px;margin:0 0 14px} li{margin-bottom:5px}
+code{font:13px var(--mono);background:var(--code);color:var(--codefg);padding:2px 6px;border-radius:4px}
+.eyebrow{font:500 12px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+
+.code{position:relative;margin:0 0 16px}
+.code pre{margin:0;font:13px/1.6 var(--mono);background:var(--code);color:var(--codefg);padding:14px 16px;padding-right:72px;border-radius:8px;overflow-x:auto;border:1px solid var(--line)}
+.code .btn{position:absolute;top:8px;right:8px;font-size:12px;padding:3px 8px;background:var(--bg)}
+
+.scroll{overflow-x:auto;margin:0 0 18px;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:560px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+th{font:500 12px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:var(--subtle)}
+td.m{font-family:var(--mono);font-size:13px}
+.tag{display:inline-block;font:500 11px var(--mono);letter-spacing:.04em;padding:2px 8px;border-radius:99px;white-space:nowrap}
+.tag.built{background:var(--accent-soft);color:var(--accent)}
+.tag.plan{background:var(--code);color:var(--muted)}
+
+.callout{border:1px solid var(--line);background:var(--subtle);border-radius:8px;padding:14px 16px;margin:0 0 18px;max-width:72ch}
+.callout b.k{display:block;font:500 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.callout p:last-child{margin:0}
+
+figure{margin:20px 0 22px}
+figure .scroll{padding:18px 8px;background:var(--subtle)}
+figure svg{display:block;min-width:760px;width:100%;height:auto;color:var(--fg)}
+figcaption{font-size:13px;color:var(--muted);margin-top:8px;max-width:70ch}
+.bx{fill:var(--bg);stroke:var(--line);stroke-width:1.2}
+.bx.hl{stroke:var(--accent);fill:var(--accent-soft)}
+.t1{font:600 13px var(--sans);fill:var(--fg)}
+.t2{font:11px var(--mono);fill:var(--muted)}
+.ar{stroke:var(--muted);stroke-width:1.3;fill:none}
+.al{font:11px var(--mono);fill:var(--muted)}
+
+/* metrics band */
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:28px 0 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.stat{padding:24px 16px 22px 0;display:flex;flex-direction:column;gap:6px;min-width:0}
+.stat + .stat{padding-left:18px;border-left:1px solid var(--line)}
+.stat::before{content:"";width:36px;height:4px;border-radius:2px;background:var(--k);margin-bottom:10px}
+.stat .n{font-size:clamp(30px,5.2vw,58px);line-height:1;font-weight:700;letter-spacing:-.045em;color:var(--k);font-variant-numeric:tabular-nums}
+.stat .n small{font-size:.5em;letter-spacing:-.02em;margin-left:2px}
+.stat .l{font-weight:600;font-size:15px}
+.stat .d{font-size:13px;color:var(--muted)}
+.layerbar{display:flex;height:8px;border-radius:4px;overflow:hidden;margin:8px 0 2px;gap:2px}
+.layerbar i{display:block;background:var(--k)}
+.strip{display:flex;flex-wrap:wrap;gap:0;margin:0 0 24px;border-bottom:1px solid var(--line);font:13px var(--mono)}
+.strip span{padding:12px 22px 12px 0;margin-right:22px;border-right:1px solid var(--line);color:var(--muted)}
+.strip span:last-child{border-right:0}
+.strip b{color:var(--fg);font-weight:500}
+@media (max-width:700px){.stat{padding:18px 8px 16px 0}.stat + .stat{padding-left:10px}.stat .l{font-size:13px}.stat .d{font-size:11.5px;overflow-wrap:anywhere}.stat .d code{font-size:10.5px}.stat::before{width:24px}}
+
+/* stage colours */
+.bx.ing{--c:var(--c-ingest)} .bx.wh{--c:var(--c-wh)} .bx.mod{--c:var(--c-mod)} .bx.srv{--c:var(--c-srv)} .bx.pap{--c:var(--c-pap)}
+.bx.ing,.bx.wh,.bx.mod,.bx.srv,.bx.pap{stroke:var(--c);fill:color-mix(in srgb,var(--c) 11%,var(--bg))}
+.bx.wh.hl{fill:color-mix(in srgb,var(--c) 24%,var(--bg));stroke-width:2.2}
+section[style] h2::before{content:"";display:inline-block;width:11px;height:11px;border-radius:3px;background:var(--c);margin-right:10px;vertical-align:1px}
+section[style] h2{border-top:2px solid color-mix(in srgb,var(--c) 40%,var(--line))}
+section[style] th{border-bottom:2px solid color-mix(in srgb,var(--c) 55%,var(--line));background:color-mix(in srgb,var(--c) 7%,var(--bg))}
+section[style] h3{color:var(--c)}
+section[style] .callout{border-color:color-mix(in srgb,var(--c) 40%,var(--line));background:color-mix(in srgb,var(--c) 7%,var(--bg))}
+aside a.c::before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--c);margin-right:9px}
+aside a.c.on{color:var(--fg);background:color-mix(in srgb,var(--c) 14%,var(--bg))}
+
+@media (max-width:860px){
+  .wrap{grid-template-columns:minmax(0,1fr);gap:0}
+  aside{position:fixed;inset:calc(52px + env(safe-area-inset-top,0px)) 0 0 0;height:auto;background:var(--bg);z-index:15;padding:20px max(16px,env(safe-area-inset-left,0px));display:none}
+  body.menu aside{display:block}
+  #menu{display:block}
+  .crumb{display:none}
+}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style>
+
+<header>
+  <button class="btn" id="menu" aria-expanded="false" aria-controls="nav">Menu</button>
+  <span class="logo">AURUM</span><span class="crumb">Project docs</span>
+</header>
+
+<div class="wrap">
+<aside id="nav" aria-label="Documentation">
+  <h4>Start</h4>
+  <a href="#overview">Overview</a>
+  <a href="#architecture">How it connects</a>
+  <a href="#quickstart">Run it</a>
+  <h4>Components</h4>
+  <a href="#ingestion">Ingestion</a>
+  <a href="#warehouse">Warehouse</a>
+  <a href="#modeling">Modeling</a>
+  <a href="#inference">Inference</a>
+  <a href="#mcp">MCP server</a>
+  <a href="#paper">Paper trading</a>
+  <h4>Operations</h4>
+  <a href="#schedule">AWS schedule</a>
+  <a href="#deploy">CI and deploy</a>
+  <a href="#gotchas">Gotchas</a>
+  <h4>Scope</h4>
+  <a href="#status">Built vs. planned</a>
+</aside>
+
+<main>
+
+<section id="overview">
+  <div class="eyebrow">AURUM</div>
+  <h1>From S&amp;P 500 prices and filings to paper-traded decisions.</h1>
+  <p class="lede">AURUM ingests market and SEC data into Postgres, builds a feature table with dbt, trains a LightGBM ranking model, and turns the scores into BUY, SELL and HOLD. Orders go only to an Alpaca paper account.</p>
+  <div class="stats">
+    <div class="stat" style="--k:var(--c-wh)"><div class="n"><span data-count="2.9" data-dec="1">2.9</span><small>M</small></div><div class="l">feature rows</div><div class="d"><code>gold.mart_features</code>, 2000 to today</div></div>
+    <div class="stat" style="--k:var(--c-ingest)"><div class="n"><span data-count="503">503</span></div><div class="l">symbols</div><div class="d">S&amp;P 500 constituents ingested daily</div></div>
+    <div class="stat" style="--k:var(--c-mod)"><div class="n"><span data-count="20">20</span></div><div class="l">dbt models</div>
+      <div class="layerbar" role="img" aria-label="8 bronze, 8 silver, 4 gold models"><i style="flex:8;opacity:.35"></i><i style="flex:8;opacity:.65"></i><i style="flex:4"></i></div>
+      <div class="d">8 bronze · 8 silver · 4 gold</div></div>
+    <div class="stat" style="--k:var(--c-srv)"><div class="n"><span data-count="0">0</span></div><div class="l">dbt test errors</div><div class="d">2 warnings on documented outliers</div></div>
+  </div>
+  <div class="strip">
+    <span><b>3</b> state machines</span><span><b>4</b> Fargate task definitions</span><span><b>1</b> image on ECR</span><span><b>0</b> Kafka brokers needed</span>
+  </div>
+  <div class="callout"><b class="k">Read this first</b><p>The design spec describes a bigger system (Kafka, Snowflake, news sentiment, streaming inference). Those parts are not built. This page documents what runs today. See <a href="#status">Built vs. planned</a>.</p></div>
+</section>
+
+<section id="architecture">
+  <h2>How the components connect</h2>
+  <p>Each stage writes something the next one reads. Postgres <code>gold</code> is the single hand-off point: modeling and the MCP server both read only from it.</p>
+  <figure>
+    <div class="scroll"><svg viewBox="0 0 1080 290" role="img" aria-label="Pipeline: sources are ingested into Postgres, dbt builds gold.mart_features, which feeds training and the MCP server; the trained model registry feeds inference, which feeds paper trading.">
+      <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor" style="color:var(--muted)"/></marker></defs>
+      <!-- row 1 -->
+      <rect class="bx ing" x="20"  y="40" width="120" height="60" rx="8"/><text class="t1" x="80"  y="66" text-anchor="middle">Sources</text><text class="t2" x="80"  y="84" text-anchor="middle">Yahoo, EDGAR</text>
+      <rect class="bx ing" x="210" y="40" width="120" height="60" rx="8"/><text class="t1" x="270" y="66" text-anchor="middle">Ingestion</text><text class="t2" x="270" y="84" text-anchor="middle">src/ingestion</text>
+      <rect class="bx wh" x="400" y="40" width="120" height="60" rx="8"/><text class="t1" x="460" y="66" text-anchor="middle">Postgres</text><text class="t2" x="460" y="84" text-anchor="middle">landing tables</text>
+      <rect class="bx wh" x="590" y="40" width="120" height="60" rx="8"/><text class="t1" x="650" y="66" text-anchor="middle">dbt</text><text class="t2" x="650" y="84" text-anchor="middle">bronze, silver</text>
+      <rect class="bx wh hl" x="780" y="40" width="120" height="60" rx="8"/><text class="t1" x="840" y="66" text-anchor="middle">gold</text><text class="t2" x="840" y="84" text-anchor="middle">mart_features</text>
+      <rect class="bx srv" x="960" y="40" width="100" height="60" rx="8"/><text class="t1" x="1010" y="66" text-anchor="middle">MCP</text><text class="t2" x="1010" y="84" text-anchor="middle">src/mcp</text>
+      <!-- row 1 arrows -->
+      <line class="ar" x1="142" y1="70" x2="206" y2="70" marker-end="url(#ah)"/><text class="al" x="174" y="62" text-anchor="middle">fetch</text>
+      <line class="ar" x1="332" y1="70" x2="396" y2="70" marker-end="url(#ah)"/><text class="al" x="364" y="62" text-anchor="middle">append</text>
+      <line class="ar" x1="522" y1="70" x2="586" y2="70" marker-end="url(#ah)"/><text class="al" x="554" y="62" text-anchor="middle">build</text>
+      <line class="ar" x1="712" y1="70" x2="776" y2="70" marker-end="url(#ah)"/><text class="al" x="744" y="62" text-anchor="middle">marts</text>
+      <line class="ar" x1="902" y1="70" x2="956" y2="70" marker-end="url(#ah)"/><text class="al" x="929" y="62" text-anchor="middle">reads</text>
+      <!-- down -->
+      <line class="ar" x1="840" y1="102" x2="840" y2="186" marker-end="url(#ah)"/><text class="al" x="850" y="148">train on</text>
+      <!-- row 2 -->
+      <rect class="bx mod" x="780" y="190" width="120" height="60" rx="8"/><text class="t1" x="840" y="216" text-anchor="middle">Modeling</text><text class="t2" x="840" y="234" text-anchor="middle">src/modeling</text>
+      <rect class="bx mod" x="590" y="190" width="120" height="60" rx="8"/><text class="t1" x="650" y="216" text-anchor="middle">Registry</text><text class="t2" x="650" y="234" text-anchor="middle">models/</text>
+      <rect class="bx srv" x="400" y="190" width="120" height="60" rx="8"/><text class="t1" x="460" y="216" text-anchor="middle">Inference</text><text class="t2" x="460" y="234" text-anchor="middle">src/inference</text>
+      <rect class="bx pap" x="210" y="190" width="120" height="60" rx="8"/><text class="t1" x="270" y="216" text-anchor="middle">Paper</text><text class="t2" x="270" y="234" text-anchor="middle">src/paper</text>
+      <rect class="bx pap" x="20"  y="190" width="120" height="60" rx="8"/><text class="t1" x="80"  y="216" text-anchor="middle">Alpaca</text><text class="t2" x="80"  y="234" text-anchor="middle">paper account</text>
+      <!-- row 2 arrows (right to left) -->
+      <line class="ar" x1="778" y1="220" x2="714" y2="220" marker-end="url(#ah)"/><text class="al" x="746" y="212" text-anchor="middle">writes run</text>
+      <line class="ar" x1="588" y1="220" x2="524" y2="220" marker-end="url(#ah)"/><text class="al" x="556" y="212" text-anchor="middle">newest</text>
+      <line class="ar" x1="398" y1="220" x2="334" y2="220" marker-end="url(#ah)"/><text class="al" x="366" y="212" text-anchor="middle">decisions</text>
+      <line class="ar" x1="208" y1="220" x2="144" y2="220" marker-end="url(#ah)"/><text class="al" x="176" y="212" text-anchor="middle">orders</text>
+    </svg></div>
+    <figcaption>Top row is data preparation, bottom row is the model and its use. The MCP server also calls inference for its <code>get_decisions</code> and <code>score_symbols</code> tools.</figcaption>
+  </figure>
+
+  <h3>What each component reads and writes</h3>
+  <div class="scroll"><table>
+    <tr><th>Component</th><th>Reads</th><th>Writes</th><th>Entry point</th></tr>
+    <tr><td>Ingestion</td><td>Yahoo Finance, SEC EDGAR</td><td>Postgres landing tables</td><td class="m">src.ingestion.cli</td></tr>
+    <tr><td>dbt</td><td>Landing tables, 3 seeds</td><td><code>bronze</code>, <code>silver</code>, <code>gold</code> schemas</td><td class="m">dbt build</td></tr>
+    <tr><td>Modeling</td><td><code>gold.mart_features</code></td><td>Versioned run under <code>models/</code></td><td class="m">src.modeling.cli</td></tr>
+    <tr><td>Inference</td><td>Newest run, latest gold date</td><td>BUY / SELL / HOLD decisions</td><td class="m">src.inference.cli</td></tr>
+    <tr><td>MCP server</td><td><code>gold</code>, dbt catalog</td><td>Nothing (read-only)</td><td class="m">src.mcp.server</td></tr>
+    <tr><td>Paper trading</td><td>Decisions</td><td>Alpaca paper orders, SQLite ledger</td><td class="m">src.paper.cli</td></tr>
+  </table></div>
+</section>
+
+<section id="quickstart">
+  <h2>Run it</h2>
+  <p>Python 3.12, managed with <code>uv</code>. Secrets are environment variable names in the configs and live in <code>.env</code>.</p>
+  <h3>Install</h3>
+  <div class="code"><pre>uv sync --locked --no-build
+uv run ruff check src/ main.py
+uv run pytest tests/ -v</pre><button class="btn" data-copy>Copy</button></div>
+  <h3>Ingest one feed</h3>
+  <div class="code"><pre># -f False resumes from watermarks. Default is a full load.
+uv run python -m src.ingestion.cli -c src/ingestion/configs/yahoo/ohlcv_1d.yaml -f False</pre><button class="btn" data-copy>Copy</button></div>
+  <h3>Build the warehouse</h3>
+  <div class="code"><pre>cd src/transformation/aurum_dwh
+uv run --group dbt dbt deps
+uv run --group dbt dbt seed
+uv run --group dbt dbt build</pre><button class="btn" data-copy>Copy</button></div>
+  <h3>Train, then decide</h3>
+  <div class="code"><pre>uv sync --group modeling
+uv run python -m src.modeling.cli train -c src/modeling/configs/lgbm_xs_excess_5d.yaml
+uv run --group modeling python -m src.inference.cli decide</pre><button class="btn" data-copy>Copy</button></div>
+  <h3>Paper trade (orders shown, none sent)</h3>
+  <div class="code"><pre>uv run --group modeling --group paper python -m src.paper.cli rebalance --dry-run</pre><button class="btn" data-copy>Copy</button></div>
+  <h3>Everything in one image</h3>
+  <div class="code"><pre>docker compose -f docker-compose.modeling.yml build trainer
+docker compose -f docker-compose.modeling.yml run --rm trainer infer decide
+# first arg after trainer: ingest | dbt | model | infer</pre><button class="btn" data-copy>Copy</button></div>
+
+  <h3>Environment variables</h3>
+  <div class="scroll"><table>
+    <tr><th>Name</th><th>Used by</th><th>Purpose</th></tr>
+    <tr><td class="m">HOST, PORT, AURUM_USERNAME, AURUM_PASSWORD</td><td>Ingestion</td><td>Postgres connection</td></tr>
+    <tr><td class="m">SEC_USER_AGENT</td><td>EDGAR feeds</td><td>Required honest user agent; EDGAR returns 403 without it</td></tr>
+    <tr><td class="m">ALPACA_API_KEY, ALPACA_SECRET_KEY</td><td>Paper trading</td><td>Alpaca paper credentials</td></tr>
+    <tr><td class="m">AURUM_NUM_THREADS</td><td>Modeling</td><td>Overrides LightGBM thread count (default 4)</td></tr>
+    <tr><td class="m">AURUM_MCP_TRANSPORT</td><td>MCP</td><td><code>stdio</code> (default) or streamable HTTP</td></tr>
+    <tr><td class="m">AURUM_MCP_ALLOW_PUBLIC_BIND</td><td>MCP</td><td>Set to <code>1</code> to bind a non-loopback address; HTTP has no auth</td></tr>
+  </table></div>
+</section>
+
+<section id="ingestion" style="--c:var(--c-ingest)">
+  <h2>Ingestion</h2>
+  <p>One YAML config fully specifies a run. Data goes straight into Postgres; no Kafka is in the code path.</p>
+  <ol>
+    <li><b>Load and build.</b> <code>runner.run_feed()</code> reads the config and the factory returns a feed. Classes are found by registry name, so every new feed or datasource module must be imported in <code>runner.py</code>.</li>
+    <li><b>Staleness gate.</b> A config with <code>min_refresh_gap_days</code> (the six EDGAR configs set 10) is skipped when its landing table is fresher than that. The run returns <code>SKIPPED_FRESH</code> and exits 0.</li>
+    <li><b>Watermarks.</b> With <code>-f False</code>, <code>MAX(date) GROUP BY symbol</code> on the landing table, and each symbol resumes the next day.</li>
+    <li><b>Read in chunks.</b> Yahoo yields one frame per <code>batch_size</code> symbols, so peak memory is one batch.</li>
+    <li><b>Process.</b> <code>Feed.process()</code> is the only per-feed code. It uppercases columns and runs once per chunk, so it must stay row-wise.</li>
+    <li><b>Stamp and write.</b> Adds <code>RUN_DATE</code>, <code>EXECUTION_ID</code> and an md5 primary key, then appends to the sink in 50k-row chunks.</li>
+  </ol>
+  <div class="scroll"><table>
+    <tr><th>Source</th><th>Mode</th><th>Notes</th></tr>
+    <tr><td>Yahoo OHLCV</td><td>Incremental by watermark</td><td>100 symbols per batch</td></tr>
+    <tr><td>EDGAR statements</td><td>Full load, six configs</td><td>10 requests per second cap. <code>truncate.py</code> empties each table first because the sink does not deduplicate.</td></tr>
+  </table></div>
+  <div class="callout"><b class="k">Exit codes matter</b><p>The CLI exits 1 on <code>FAILED</code>. Step Functions relies on that to mark the run failed, so do not remove it.</p></div>
+</section>
+
+<section id="warehouse" style="--c:var(--c-wh)">
+  <h2>Warehouse</h2>
+  <p>A dbt project on Postgres, not Snowflake. Three layers, all tested (2 warnings on documented real-data outliers, 0 errors).</p>
+  <div class="scroll"><table>
+    <tr><th>Layer</th><th>Models</th><th>Purpose</th></tr>
+    <tr><td>bronze</td><td>8 <code>br_*</code></td><td>Mirrors the landing tables</td></tr>
+    <tr><td>silver</td><td>3 <code>stg_*</code>, 5 <code>int_*</code></td><td>Cleaned statements and engineered features</td></tr>
+    <tr><td>gold</td><td>4 <code>mart_*</code></td><td>ML-ready marts. <code>mart_features</code> is the model input.</td></tr>
+  </table></div>
+  <ul>
+    <li><b>Prices before fundamentals.</b> Silver joins the two, so building over fresh statements and stale prices would be as-of two different dates.</li>
+    <li><b>Point-in-time lag.</b> Fundamentals are lagged so a model never sees a filing before it was public.</li>
+    <li><b>Schema names.</b> <code>generate_schema_name</code> is overridden so <code>bronze</code>, <code>silver</code> and <code>gold</code> are used as written.</li>
+    <li><b>Seeds.</b> <code>company_meta</code>, <code>concept_map</code>, <code>selected_features</code>.</li>
+  </ul>
+</section>
+
+<section id="modeling" style="--c:var(--c-mod)">
+  <h2>Modeling</h2>
+  <p>The task is cross-sectional ranking: which stocks beat the market over five days. The target is <code>fwd_ret_5d_excess</code>, not the raw return, because SHAP on the raw target collapses onto market-regime columns.</p>
+  <div class="scroll"><table>
+    <tr><th>Command</th><th>Does</th></tr>
+    <tr><td class="m">train</td><td>Fits LightGBM across purged walk-forward folds and writes a versioned run</td></tr>
+    <tr><td class="m">evaluate</td><td>Holdout rank IC, ICIR and decile spread into <code>metrics.json</code></td></tr>
+    <tr><td class="m">select-features</td><td>SHAP ranking written to <code>selected_features.csv</code></td></tr>
+    <tr><td class="m">backtest</td><td>Cost sweep to a break-even bps, factor attribution, signal-lag and deflated-Sharpe checks; writes <code>backtest/report.html</code></td></tr>
+    <tr><td class="m">compare</td><td>Promotion gate: narrowed vs full model on holdout ICIR and decile spread</td></tr>
+    <tr><td class="m">predict</td><td>Scores a given as-of date</td></tr>
+  </table></div>
+  <ul>
+    <li><b>Purge and embargo.</b> The naive <code>fold_id &lt;= k</code> split leaks across the target horizon.</li>
+    <li><b>Holdout.</b> Folds 298 to 321, about 2024-10 to 2026-09, never used for training.</li>
+    <li><b>Replayable preprocessing.</b> Every step must replay against <code>mart_features</code> alone. NaNs are kept for LightGBM.</li>
+    <li><b>Registry.</b> Flat files under <code>models/</code>, addressed by version or <code>latest</code>.</li>
+  </ul>
+</section>
+
+<section id="inference" style="--c:var(--c-srv)">
+  <h2>Inference</h2>
+  <p><code>decide</code> scores the newest trained run on the latest gold date. Top decile is BUY, bottom decile SELL, the rest HOLD. A stale-date guard refuses to decide on old data. <code>replay</code> backtests the same rule against a momentum baseline.</p>
+  <div class="callout"><b class="k">Caveat</b><p>Holdout IC is 0.007 and break-even cost is 18 bps. The signal is weak, and every output carries that warning.</p></div>
+</section>
+
+<section id="mcp" style="--c:var(--c-srv)">
+  <h2>MCP server</h2>
+  <p>An MCP server over Postgres <code>gold</code>. The catalog comes from dbt <code>target/*.json</code> with a live <code>information_schema</code> fallback.</p>
+  <div class="scroll"><table>
+    <tr><th>Tool</th><th>Does</th></tr>
+    <tr><td class="m">list_tables</td><td>Lists gold tables</td></tr>
+    <tr><td class="m">describe_table</td><td>Columns and descriptions for one table</td></tr>
+    <tr><td class="m">run_query</td><td>Read-only SQL against gold</td></tr>
+    <tr><td class="m">refresh_catalog</td><td>Reloads the dbt catalog</td></tr>
+    <tr><td class="m">get_decisions</td><td>Current BUY / SELL / HOLD from inference</td></tr>
+    <tr><td class="m">score_symbols</td><td>Model scores for chosen symbols</td></tr>
+  </table></div>
+  <div class="code"><pre>uv run --group mcp python -m src.mcp.server</pre><button class="btn" data-copy>Copy</button></div>
+  <p>Hosted on a <code>t3.micro</code> EC2 with a read-only Postgres role, reachable only through an SSM port-forward.</p>
+</section>
+
+<section id="paper" style="--c:var(--c-pap)">
+  <h2>Paper trading</h2>
+  <p>The only order placement in the project, and only against an Alpaca paper account. It needs the <code>paper</code> dependency group, plus <code>backtesting</code> for the engines. It is not scheduled on AWS.</p>
+  <div class="scroll"><table>
+    <tr><th>Command</th><th>Does</th></tr>
+    <tr><td class="m">rebalance [--dry-run]</td><td>Turns decisions into orders; a dry run prints them without sending</td></tr>
+    <tr><td class="m">snapshot --watch</td><td>Records account state</td></tr>
+    <tr><td class="m">report</td><td>Reads the SQLite ledger</td></tr>
+    <tr><td class="m">backtest, crosscheck</td><td>Replays the rule on vectorbt, backtrader and Lumibot</td></tr>
+  </table></div>
+  <p><code>AlpacaBroker</code> talks to Alpaca and <code>SimBroker</code> simulates fills. Lumibot runs in a child process with <code>mcp&lt;2</code> because <code>src/mcp</code> needs mcp 2.x.</p>
+</section>
+
+<section id="schedule">
+  <h2>AWS schedule</h2>
+  <p>RDS Postgres, one ECR image run as four ECS Fargate task definitions, and three Step Functions state machines started by EventBridge Scheduler. Terraform is in <code>infra/terraform/</code>.</p>
+  <div class="scroll"><table>
+    <tr><th>State machine</th><th>Cron (UTC)</th><th>States</th></tr>
+    <tr><td class="m">aurum-daily-market</td><td class="m">30 22 ? * MON-FRI *</td><td>ingest-market, dbt</td></tr>
+    <tr><td class="m">aurum-semimonthly-edgar</td><td class="m">0 6 1,15 * ? *</td><td>ingest-market, ingest-edgar, dbt</td></tr>
+    <tr><td class="m">aurum-monthly-train</td><td class="m">0 12 1 * ? *</td><td>train</td></tr>
+  </table></div>
+  <figure>
+    <div class="scroll"><svg viewBox="0 0 720 130" role="img" aria-label="Timeline of the 1st of the month in UTC: 06:00 market, EDGAR and dbt; 12:00 train; 22:30 market and dbt.">
+      <line class="ar" x1="40" y1="70" x2="680" y2="70"/>
+      <g class="t2" text-anchor="middle">
+        <line class="ar" x1="40" y1="64" x2="40" y2="76"/><text x="40" y="96">00:00</text>
+        <line class="ar" x1="200" y1="64" x2="200" y2="76"/>
+        <line class="ar" x1="360" y1="64" x2="360" y2="76"/>
+        <line class="ar" x1="520" y1="64" x2="520" y2="76"/><text x="520" y="96">18:00</text>
+        <line class="ar" x1="680" y1="64" x2="680" y2="76"/><text x="680" y="96">24:00</text>
+      </g>
+      <circle cx="200" cy="70" r="6" fill="var(--c-ingest)"/><text class="t1" x="200" y="46" text-anchor="middle">06:00</text><text class="t2" x="200" y="112" text-anchor="middle">market + EDGAR + dbt</text>
+      <circle cx="360" cy="70" r="6" fill="var(--c-mod)"/><text class="t1" x="360" y="46" text-anchor="middle">12:00</text><text class="t2" x="360" y="112" text-anchor="middle">train</text>
+      <circle cx="640" cy="70" r="6" fill="var(--c-ingest)"/><text class="t1" x="640" y="46" text-anchor="middle">22:30</text><text class="t2" x="640" y="112" text-anchor="middle">market + dbt</text>
+    </svg></div>
+    <figcaption>On the 1st of the month the three machines run in dependency order, so training at 12:00 sees data freshly built at 06:00.</figcaption>
+  </figure>
+  <h3>Why it is shaped this way</h3>
+  <ul>
+    <li><b>dbt after every ingest.</b> <code>gold.mart_features</code> is only as fresh as the last build. The EDGAR cron can fire on a weekend while the daily machine is weekdays only, so EDGAR carries its own dbt state.</li>
+    <li><b>Prices before fundamentals.</b> EDGAR's machine ingests market data first, because silver joins the two.</li>
+    <li><b>dbt and train are separate states.</b> A dbt failure must never reach training.</li>
+    <li><b>Failure is loud.</b> Every ECS state is <code>ecs:runTask.sync</code>, which fails on a non-zero exit. Failures publish to SNS and end the execution red.</li>
+    <li><b>One command per task.</b> Each task definition's <code>command</code> holds the whole workflow as <code>sh -c "a &amp;&amp; b &amp;&amp; c"</code>, so the machines have one or two states each.</li>
+  </ul>
+</section>
+
+<section id="deploy">
+  <h2>CI and deploy</h2>
+  <p>CI runs on <code>main</code>, <code>develop</code>, <code>epic/*</code> and pull requests: ruff, pytest with coverage, then SonarCloud. Dependencies install with <code>uv sync --locked --no-build</code> across the modeling, mcp, paper and backtesting groups.</p>
+  <ol>
+    <li>A merge to <code>main</code> triggers <code>terraform.yml</code>.</li>
+    <li>The <code>apply</code> job waits for a reviewer on the <code>apply</code> environment.</li>
+    <li>It assumes the <code>aurum-github-actions</code> role through OIDC.</li>
+    <li><code>scripts/deploy.sh apply</code> builds the app image (<code>&lt;sha&gt;</code>) and the MCP image (<code>mcp-&lt;sha&gt;</code>), pushing a tag only if ECR does not already hold it.</li>
+    <li>Terraform applies. A merge that changes <code>src/</code> ships to Fargate with no local step.</li>
+  </ol>
+  <p><code>image_tag</code> is the short SHA of the last commit touching an image path, not HEAD, so an infra-only commit rebuilds nothing. For rollback, run <code>make push</code> locally with <code>-var="image_tag=&lt;older sha&gt;"</code>.</p>
+</section>
+
+<section id="gotchas">
+  <h2>Gotchas</h2>
+  <ul>
+    <li><b>A fresh database means a full load</b> whatever <code>-f</code> says. The ingest task is sized for daily increments, so a backfill needs <code>run-task --overrides</code> with more memory.</li>
+    <li><b>The sink does not deduplicate.</b> Append-only writes are safe for watermarked feeds. EDGAR feeds must be truncated first, one config at a time.</li>
+    <li><b>Memory.</b> An unchunked first load of 503 symbols from 2000 OOM-killed the 8 GB ingest task (exit 137) on 2026-09-06. <code>batch_size</code> is the knob.</li>
+    <li><b>Uppercase columns.</b> Feeds, configs, primary keys and watermarks all use uppercase names, and Postgres identifiers are quoted.</li>
+    <li><b>Missing group, CI-only failure.</b> A <code>ModuleNotFoundError</code> that appears only in CI means a dependency group is missing from the install step.</li>
+  </ul>
+</section>
+
+<section id="status">
+  <h2>Built vs. planned</h2>
+  <div class="scroll"><table>
+    <tr><th>Piece</th><th>State</th><th>Note</th></tr>
+    <tr><td>Ingestion to Postgres</td><td><span class="tag built">built</span></td><td>Yahoo and EDGAR</td></tr>
+    <tr><td>dbt medallion</td><td><span class="tag built">built</span></td><td>On Postgres</td></tr>
+    <tr><td>Modeling and inference</td><td><span class="tag built">built</span></td><td>Weak signal</td></tr>
+    <tr><td>MCP server</td><td><span class="tag built">built</span></td><td>Six tools, EC2 host</td></tr>
+    <tr><td>Paper trading</td><td><span class="tag built">built</span></td><td>Run by hand, not scheduled</td></tr>
+    <tr><td>AWS schedule</td><td><span class="tag built">built</span></td><td>Three state machines</td></tr>
+    <tr><td>Kafka backbone</td><td><span class="tag plan">planned</span></td><td>Not in the code path</td></tr>
+    <tr><td>Snowflake medallion</td><td><span class="tag plan">planned</span></td><td>Postgres is used instead</td></tr>
+    <tr><td>News sentiment</td><td><span class="tag plan">planned</span></td><td>Not started</td></tr>
+    <tr><td>Streaming inference</td><td><span class="tag plan">planned</span></td><td>Batch only</td></tr>
+    <tr><td>Airflow, MLflow</td><td><span class="tag plan">planned</span></td><td>Step Functions and flat files stand in</td></tr>
+  </table></div>
+  <p>The full docs index is <code>docs/README.md</code>. Good starting points are <code>docs/warehouse/dwh-medallion.md</code>, <code>docs/modeling/modeling-design.md</code> and <code>docs/infra/aws-deployment-plan.md</code>.</p>
+</section>
+
+</main>
+</div>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+/* mobile menu */
+const menu=$("#menu");
+menu.onclick=()=>{const o=document.body.classList.toggle("menu");menu.setAttribute("aria-expanded",o)};
+$$("#nav a").forEach(a=>a.addEventListener("click",()=>{document.body.classList.remove("menu");menu.setAttribute("aria-expanded","false")}));
+/* count-up: markup already holds the final value, so the page is complete without this */
+if(!matchMedia("(prefers-reduced-motion: reduce)").matches){
+  $$("[data-count]").forEach(el=>{
+    const end=parseFloat(el.dataset.count), dec=+(el.dataset.dec||0), t0=performance.now(), dur=900;
+    const tick=t=>{const p=Math.min(1,(t-t0)/dur), e=1-Math.pow(1-p,3);
+      el.textContent=(end*e).toFixed(dec); if(p<1)requestAnimationFrame(tick)};
+    el.textContent=(0).toFixed(dec); requestAnimationFrame(tick);
+  });
+}
+/* copy buttons */
+$$("[data-copy]").forEach(b=>b.onclick=async()=>{
+  const pre=b.previousElementSibling, text=pre.textContent;
+  try{await navigator.clipboard.writeText(text);b.textContent="Copied"}
+  catch(e){const r=document.createRange();r.selectNodeContents(pre);const s=getSelection();s.removeAllRanges();s.addRange(r);b.textContent="Selected"}
+  setTimeout(()=>b.textContent="Copy",1400);
+});
+/* scroll spy */
+const links=new Map($$("#nav a").map(a=>[a.getAttribute("href").slice(1),a]));
+const spy=new IntersectionObserver(es=>{
+  es.forEach(e=>{if(e.isIntersecting){links.forEach(l=>l.classList.remove("on"));links.get(e.target.id)?.classList.add("on")}});
+},{rootMargin:"-70px 0px -70% 0px"});
+$$("main section").forEach(s=>spy.observe(s));
+links.get("overview").classList.add("on");
+$$("main section[style]").forEach(s=>{const a=links.get(s.id);if(a){a.classList.add("c");a.style.cssText=s.getAttribute("style")}});
+</script>
+
+</html>
