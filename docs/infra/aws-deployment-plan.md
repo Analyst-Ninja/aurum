@@ -448,7 +448,7 @@ infra/terraform/
   autoscaling), `storage_encrypted`, `publicly_accessible = false`, `backup_retention_period = 7`,
   `deletion_protection = true`, `db_name = "aurum"`.
 - **SSM `SecureString`** — `/aurum/db_password`, `/aurum/sec_user_agent`.
-- **ECR** — repo `aurum`, scan on push, lifecycle keeping the last 3 `mcp-<sha>` and the last 3 other tagged images, and expiring untagged manifests after a day. Images are built with `--provenance=false --sbom=false` so each push is one manifest (GH-105).
+- **ECR** — repo `aurum`, scan on push, lifecycle keeping the last 3 `mcp-<sha>` and the last 3 other tagged images; untagged entries are never counted. Images are built with `--provenance=false --sbom=false` so each push is one manifest (GH-105).
 - **EFS** — encrypted, mount targets in the default subnets, one access point at `uid/gid 1000`
   (matching the image's `aurum` user), `root_directory /aurum`, IA after 7 days.
 - **ECS** — cluster `aurum` with `FARGATE` and `FARGATE_SPOT`; log group `/ecs/aurum`, 7-day

@@ -124,7 +124,8 @@ resource "aws_ecr_repository" "aurum" {
 # attestation, two per push). Those children of the newer `mcp-<sha>` push outnumbered the
 # app image, so the policy expired `<sha>` within a day of every deploy and ECS failed with
 # CannotPullContainerError. deploy.sh now builds with --provenance=false --sbom=false so a
-# push is one manifest; rule 3 sweeps any untagged leftovers without touching the quota.
+# push is one manifest. There is deliberately no rule for untagged images: the children of
+# an image index pushed before GH-105 are untagged, and expiring them breaks that tag.
 resource "aws_ecr_lifecycle_policy" "keep_last_three" {
   repository = aws_ecr_repository.aurum.name
 
@@ -149,17 +150,6 @@ resource "aws_ecr_lifecycle_policy" "keep_last_three" {
           tagPatternList = ["*"]
           countType      = "imageCountMoreThan"
           countNumber    = 3
-        }
-        action = { type = "expire" }
-      },
-      {
-        rulePriority = 3
-        description  = "Expire untagged manifests after a day"
-        selection = {
-          tagStatus   = "untagged"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 1
         }
         action = { type = "expire" }
       },
