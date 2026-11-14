@@ -117,7 +117,14 @@ resource "aws_ecr_repository" "aurum" {
 # the two lineages do not eat each other's quota: with one shared count, every release (one
 # ML image plus one MCP image) would halve the rollback depth of the ECS image. ECR applies
 # the first matching rule and an image is never re-evaluated by a lower one, which is why the
-# catch-all `any` rule is last.
+# catch-all rule is last.
+#
+# Rule 2 counts *tagged* images only (GH-105). It used to be `any`, which also counted the
+# untagged child manifests a buildx push leaves behind (platform image + provenance
+# attestation, two per push). Those children of the newer `mcp-<sha>` push outnumbered the
+# app image, so the policy expired `<sha>` within a day of every deploy and ECS failed with
+# CannotPullContainerError. deploy.sh now builds with --provenance=false --sbom=false so a
+# push is one manifest; rule 3 sweeps any untagged leftovers without touching the quota.
 resource "aws_ecr_lifecycle_policy" "keep_last_three" {
   repository = aws_ecr_repository.aurum.name
 
@@ -138,9 +145,21 @@ resource "aws_ecr_lifecycle_policy" "keep_last_three" {
         rulePriority = 2
         description  = "Keep the last 3 images"
         selection = {
-          tagStatus   = "any"
-          countType   = "imageCountMoreThan"
-          countNumber = 3
+          tagStatus      = "tagged"
+          tagPatternList = ["*"]
+          countType      = "imageCountMoreThan"
+          countNumber    = 3
+        }
+        action = { type = "expire" }
+      },
+      {
+        rulePriority = 3
+        description  = "Expire untagged manifests after a day"
+        selection = {
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 1
         }
         action = { type = "expire" }
       },
