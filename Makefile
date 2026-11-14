@@ -18,7 +18,7 @@ DOCKERFILE  := docker/aurum.Dockerfile
 
 # --platform linux/amd64 is not optional on Apple silicon: Fargate refuses an arm64 image.
 build:
-	docker build --platform linux/amd64 -f $(DOCKERFILE) -t $(ECR_REPO):$(TAG) .
+	docker build --platform linux/amd64 --provenance=false --sbom=false -f $(DOCKERFILE) -t $(ECR_REPO):$(TAG) .
 
 login:
 	aws ecr get-login-password --region $(AWS_REGION) \

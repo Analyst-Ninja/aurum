@@ -448,7 +448,7 @@ infra/terraform/
   autoscaling), `storage_encrypted`, `publicly_accessible = false`, `backup_retention_period = 7`,
   `deletion_protection = true`, `db_name = "aurum"`.
 - **SSM `SecureString`** — `/aurum/db_password`, `/aurum/sec_user_agent`.
-- **ECR** — repo `aurum`, scan on push, lifecycle keeping the last 3 images.
+- **ECR** — repo `aurum`, scan on push, lifecycle keeping the last 3 `mcp-<sha>` and the last 3 other tagged images; untagged entries are never counted. Images are built with `--provenance=false --sbom=false` so each push is one manifest (GH-105).
 - **EFS** — encrypted, mount targets in the default subnets, one access point at `uid/gid 1000`
   (matching the image's `aurum` user), `root_directory /aurum`, IA after 7 days.
 - **ECS** — cluster `aurum` with `FARGATE` and `FARGATE_SPOT`; log group `/ecs/aurum`, 7-day
@@ -532,6 +532,7 @@ link. Until someone does, every failure is silent.
 | dbt profile not found | `DBT_PROFILES_DIR` or the working directory | the entrypoint `cd`s to `/app/src/transformation/aurum_dwh`; profiles come from `docker/dbt/` |
 | Model version stamped `{date}-unknown` | the image carries no `.git` | `AURUM_GIT_SHA = var.image_tag` — apply with `-var="image_tag=$(git rev-parse --short HEAD)"` |
 | `CannotPullContainerError: ... not found` after 7 retries | the task definition names a tag that is not in ECR — classically `latest`, which an IMMUTABLE repository never has | `make push`, then apply with the short SHA it printed. `var.image_tag` has no default and rejects `latest` |
+| `CannotPullContainerError: ... aurum:<sha>: not found` hours after a deploy that pushed `<sha>` | the ECR lifecycle policy expired it: before GH-105, rule 2 was `tagStatus = any` and counted the untagged buildx attestation/platform children of the later `mcp-<sha>` push | fixed by GH-105; to recover, re-run the Terraform workflow — `deploy.sh` re-pushes a missing tag |
 | EDGAR row counts doubling | an image predating the truncate step | §2.4 |
 | A failure produced no email | the SNS subscription is still `pending confirmation` | click the link once |
 

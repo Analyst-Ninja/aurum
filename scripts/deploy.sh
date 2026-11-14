@@ -57,7 +57,10 @@ push_image() {
   aws ecr get-login-password --region "$REGION" \
     | docker login --username AWS --password-stdin "$registry"
   # --platform linux/amd64: Fargate refuses arm64, and it is a no-op on the CI runner.
-  docker build --platform linux/amd64 ${target:+--target "$target"} \
+  # --provenance/--sbom=false: one plain manifest per push. With buildx's default attestation
+  # a push is an index plus two untagged children, and those children made the ECR lifecycle
+  # policy expire the app image (GH-105).
+  docker build --platform linux/amd64 --provenance=false --sbom=false ${target:+--target "$target"} \
     -f "$REPO_ROOT/docker/aurum.Dockerfile" -t "$registry/$ECR_REPO:$tag" "$REPO_ROOT"
   docker push "$registry/$ECR_REPO:$tag"
 }
